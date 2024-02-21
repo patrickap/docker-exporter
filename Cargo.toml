@@ -1,0 +1,7 @@
+[package]
+name = "docker-exporter"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+tiny_http = "0.12.0"
