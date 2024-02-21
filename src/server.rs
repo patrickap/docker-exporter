@@ -26,7 +26,7 @@ impl Server {
   }
 
   pub fn start(mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-    for _ in 0..self.handles.len() {
+    for _ in 0..self.handles.capacity() {
       let server = Arc::clone(&self.server);
 
       let handle = thread::spawn(move || loop {
