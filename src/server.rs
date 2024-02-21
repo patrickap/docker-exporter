@@ -1,13 +1,12 @@
 use std::{
   error::Error,
   io::Error as IoError,
-  net::ToSocketAddrs,
   sync::Arc,
   thread::{self, JoinHandle},
 };
 
-pub struct ServerConfig<A> {
-  pub address: A,
+pub struct ServerConfig {
+  pub address: String,
   pub workers: usize,
 }
 
@@ -17,9 +16,7 @@ pub struct Server {
 }
 
 impl Server {
-  pub fn new<A: ToSocketAddrs>(
-    config: ServerConfig<A>,
-  ) -> Result<Server, Box<dyn Error + Send + Sync>> {
+  pub fn new(config: ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync>> {
     let server = Arc::new(tiny_http::Server::http(config.address)?);
     let handles = Vec::with_capacity(config.workers);
     Ok(Server { server, handles })

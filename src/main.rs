@@ -5,7 +5,7 @@ use server::{Server, ServerConfig};
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
   let server = Server::new(ServerConfig {
-    address: "0.0.0.0:9630",
+    address: String::from("0.0.0.0:9630"),
     workers: 4,
   });
   server?.start()
