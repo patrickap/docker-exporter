@@ -11,18 +11,15 @@ mod common;
 mod config;
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-  let running = Arc::new(AtomicBool::new(true));
-  let r = Arc::clone(&running);
-
-  ctrlc::set_handler(move || {
-    r.store(false, Ordering::SeqCst);
-  })?;
+  let signal = Arc::new(AtomicBool::new(false));
+  signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&signal))?;
+  signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&signal))?;
 
   let server = Arc::new(Server::http(config::SERVER_ADDRESS)?);
   let server_workers = common::ThreadPool::new(config::SERVER_WORKERS);
   println!("server listening on {}", config::SERVER_ADDRESS);
 
-  while running.load(Ordering::SeqCst) {
+  while !signal.load(Ordering::Relaxed) {
     if let Ok(Some(request)) = server.recv_timeout(config::SERVER_TIMEOUT) {
       server_workers.execute(|| {
         handle_request(request);

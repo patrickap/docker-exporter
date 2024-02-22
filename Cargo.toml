@@ -4,5 +4,5 @@ version = "0.0.1"
 edition = "2021"
 
 [dependencies]
-ctrlc = "3.4.2"
+signal-hook = "0.3.17"
 tiny_http = "0.12.0"
