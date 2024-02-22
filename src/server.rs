@@ -1,62 +1,71 @@
 use std::{
-  error::Error,
-  io::Error as IoError,
-  sync::Arc,
-  thread::{self, JoinHandle},
+  sync::{mpsc, Arc, Mutex},
+  thread::{self},
 };
 
-pub struct ServerConfig {
-  pub address: String,
-  pub workers: usize,
+pub struct ThreadPool {
+  sender: Option<mpsc::Sender<Job>>,
+  workers: Vec<Worker>,
 }
 
-pub struct Server {
-  server: Arc<tiny_http::Server>,
-  handles: Vec<JoinHandle<()>>,
-}
+impl ThreadPool {
+  pub fn new(size: usize) -> ThreadPool {
+    let (sender, receiver) = mpsc::channel();
+    let receiver = Arc::new(Mutex::new(receiver));
+    let mut workers = Vec::with_capacity(size);
 
-impl Server {
-  pub fn new(config: ServerConfig) -> Result<Server, Box<dyn Error + Send + Sync>> {
-    let server = Arc::new(tiny_http::Server::http(config.address)?);
-    let handles = Vec::with_capacity(config.workers);
-    Ok(Server { server, handles })
-  }
-
-  pub fn start(mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-    for _ in 0..self.handles.capacity() {
-      let server = Arc::clone(&self.server);
-
-      let handle = thread::spawn(move || loop {
-        match server.try_recv() {
-          Ok(value) => {
-            if let Some(request) = value {
-              if let Err(e) = handle_request(request) {
-                eprintln!("Error: {:?}", e)
-              }
-            }
-          }
-          Err(e) => eprintln!("Error: {:?}", e),
-        }
-      });
-
-      self.handles.push(handle);
+    for id in 0..size {
+      workers.push(Worker::new(id, Arc::clone(&receiver)));
     }
 
-    for handle in self.handles {
-      if let Err(e) = handle.join() {
-        eprintln!("Error: {:?}", e);
+    ThreadPool {
+      sender: Some(sender),
+      workers,
+    }
+  }
+
+  pub fn execute<F: FnOnce() + Send + 'static>(&self, f: F) {
+    let job = Box::new(f);
+    if let Some(sender) = &self.sender {
+      if let Err(e) = sender.send(job) {
+        // TODO: error
       }
     }
-
-    Ok(())
   }
 }
 
-fn handle_request(r: tiny_http::Request) -> Result<(), IoError> {
-  match r.url() {
-    "/metrics" => r.respond(tiny_http::Response::from_string(
-      "metrics can be viewed here",
-    )),
-    _ => r.respond(tiny_http::Response::from_string("404")),
+impl Drop for ThreadPool {
+  fn drop(&mut self) {
+    drop(self.sender.take());
+
+    for worker in &mut self.workers {
+      if let Some(thread) = worker.thread.take() {
+        thread.join().unwrap();
+      }
+    }
   }
 }
+
+pub struct Worker {
+  id: usize,
+  thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Worker {
+  pub fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    let thread = thread::spawn(move || loop {
+      if let Ok(receiver) = receiver.try_lock() {
+        if let Ok(job) = receiver.try_recv() {
+          job()
+        }
+      }
+    });
+
+    Worker {
+      id,
+      thread: Some(thread),
+    }
+  }
+}
+
+pub type Job = Box<dyn FnOnce() + Send + 'static>;
