@@ -54,8 +54,8 @@ pub struct Worker {
 impl Worker {
   pub fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
     let thread = thread::spawn(move || loop {
-      if let Ok(receiver) = receiver.try_lock() {
-        if let Ok(job) = receiver.try_recv() {
+      if let Ok(receiver) = receiver.lock() {
+        if let Ok(job) = receiver.recv() {
           job()
         }
       }
