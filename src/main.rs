@@ -1,4 +1,4 @@
-use std::{error::Error, io::Error as IoError, sync::Arc};
+use std::{error::Error, sync::Arc};
 use tiny_http::{Request, Response, Server};
 
 mod server;
@@ -9,18 +9,20 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
   for request in server.incoming_requests() {
     thread_pool.execute(|| {
-      if let Err(e) = handle_request(request) {
-        // TODO: error
-      }
+      handle_request(request);
     })
   }
 
   Ok(())
 }
 
-fn handle_request(request: Request) -> Result<(), IoError> {
-  match request.url() {
+fn handle_request(request: Request) {
+  let result = match request.url() {
     "/metrics" => request.respond(Response::from_string("metrics can be viewed here")),
     _ => request.respond(Response::from_string("404")),
+  };
+
+  if let Err(e) = result {
+    eprintln!("failed to handle request: {e}")
   }
 }

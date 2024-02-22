@@ -1,6 +1,6 @@
 use std::{
   sync::{mpsc, Arc, Mutex},
-  thread::{self},
+  thread,
 };
 
 pub struct ThreadPool {
@@ -26,9 +26,10 @@ impl ThreadPool {
 
   pub fn execute<F: FnOnce() + Send + 'static>(&self, f: F) {
     let job = Box::new(f);
+
     if let Some(sender) = &self.sender {
       if let Err(e) = sender.send(job) {
-        // TODO: error
+        eprintln!("failed to execute job: {e}")
       }
     }
   }
@@ -40,6 +41,8 @@ impl Drop for ThreadPool {
 
     for worker in &mut self.workers {
       if let Some(thread) = worker.thread.take() {
+        println!("shutting down worker {}", worker.id);
+
         thread.join().unwrap();
       }
     }
@@ -57,7 +60,10 @@ impl Worker {
       if let Ok(receiver) = receiver.lock() {
         match receiver.recv() {
           Ok(job) => job(),
-          Err(_) => break,
+          Err(_) => {
+            println!("worker {id} disconnected");
+            break;
+          }
         }
       }
     });
