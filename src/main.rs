@@ -4,7 +4,11 @@ use tiny_http::{Request, Response, Server};
 mod server;
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-  let server = Arc::new(Server::http("0.0.0.0:9630")?);
+  let address = "0.0.0.0:9630";
+  let server = Arc::new(Server::http(address)?);
+
+  println!("server listening on {address}");
+
   let thread_pool = server::ThreadPool::new(4);
 
   for request in server.incoming_requests() {
