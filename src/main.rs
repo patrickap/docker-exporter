@@ -7,8 +7,8 @@ use std::{
 };
 use tiny_http::{Request, Response, Server};
 
+mod common;
 mod config;
-mod server;
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
   let running = Arc::new(AtomicBool::new(true));
@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
   })?;
 
   let server = Arc::new(Server::http(config::SERVER_ADDRESS)?);
-  let server_workers = server::ThreadPool::new(config::SERVER_WORKERS);
+  let server_workers = common::ThreadPool::new(config::SERVER_WORKERS);
   println!("server listening on {}", config::SERVER_ADDRESS);
 
   while running.load(Ordering::SeqCst) {
