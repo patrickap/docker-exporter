@@ -61,7 +61,7 @@ impl Worker {
         match receiver.recv() {
           Ok(job) => job(),
           Err(_) => {
-            println!("worker {id} disconnected");
+            println!("disconnected worker {id}");
             break;
           }
         }

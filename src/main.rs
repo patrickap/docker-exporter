@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     })
   }
 
-  println!("shutting down");
+  println!("shutting down server");
   Ok(())
 }
 
