@@ -19,12 +19,12 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
   })?;
 
   let server = Arc::new(Server::http(config::SERVER_ADDRESS)?);
-  let thread_pool = server::ThreadPool::new(config::SERVER_WORKERS);
+  let server_workers = server::ThreadPool::new(config::SERVER_WORKERS);
   println!("server listening on {}", config::SERVER_ADDRESS);
 
   while running.load(Ordering::SeqCst) {
     if let Ok(Some(request)) = server.try_recv() {
-      thread_pool.execute(|| {
+      server_workers.execute(|| {
         handle_request(request);
       });
     }
