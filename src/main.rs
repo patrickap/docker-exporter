@@ -4,10 +4,10 @@ use std::{
     atomic::{AtomicBool, Ordering},
     Arc,
   },
-  time::Duration,
 };
 use tiny_http::{Request, Response, Server};
 
+mod config;
 mod server;
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -18,11 +18,9 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     r.store(false, Ordering::SeqCst);
   })?;
 
-  let address = "0.0.0.0:9632";
-  let server = Arc::new(Server::http(address)?);
-  println!("server listening on {address}");
-
-  let thread_pool = server::ThreadPool::new(4);
+  let server = Arc::new(Server::http(config::SERVER_ADDRESS)?);
+  let thread_pool = server::ThreadPool::new(config::SERVER_WORKERS);
+  println!("server listening on {}", config::SERVER_ADDRESS);
 
   while running.load(Ordering::SeqCst) {
     if let Ok(Some(request)) = server.try_recv() {
