@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
   println!("server listening on {}", config::SERVER_ADDRESS);
 
   while running.load(Ordering::SeqCst) {
-    if let Ok(Some(request)) = server.try_recv() {
+    if let Ok(Some(request)) = server.recv_timeout(config::SERVER_TIMEOUT) {
       server_workers.execute(|| {
         handle_request(request);
       });
