@@ -4,4 +4,5 @@ version = "0.0.1"
 edition = "2021"
 
 [dependencies]
+ctrlc = "3.4.2"
 tiny_http = "0.12.0"
