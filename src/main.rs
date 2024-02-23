@@ -1,43 +1,67 @@
-use std::{
-  error::Error,
-  sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-  },
-};
-use tiny_http::{Request, Response, Server};
+use std::{error::Error, sync::Arc};
 
-mod common;
+use tiny_http;
+use tokio;
+
 mod config;
 
-fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-  let signal = Arc::new(AtomicBool::new(false));
-  signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&signal))?;
-  signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&signal))?;
-
-  let server = Arc::new(Server::http(config::SERVER_ADDRESS)?);
-  let server_workers = common::ThreadPool::new(config::SERVER_WORKERS);
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+  let server = Arc::new(tiny_http::Server::http(config::SERVER_ADDRESS)?);
+  let server_ref = Arc::clone(&server);
   println!("server listening on {}", config::SERVER_ADDRESS);
 
-  while !signal.load(Ordering::Relaxed) {
-    if let Ok(Some(request)) = server.recv_timeout(config::SERVER_TIMEOUT) {
-      server_workers.execute(|| {
+  // TODO: without move possible?
+  let signals = tokio::spawn(signals(move || server_ref.unblock()));
+
+  let mut tasks = tokio::task::JoinSet::new();
+  let tasks = tokio::spawn(async move {
+    for request in server.incoming_requests() {
+      tasks.spawn_blocking(|| {
         handle_request(request);
       });
     }
-  }
+  });
 
+  tokio::try_join!(signals, tasks)?;
   println!("shutting down server");
   Ok(())
 }
 
-fn handle_request(request: Request) {
+fn handle_request(request: tiny_http::Request) {
   let result = match request.url() {
-    "/metrics" => request.respond(Response::from_string("metrics can be viewed here")),
-    _ => request.respond(Response::from_string("404")),
+    "/metrics" => request.respond(tiny_http::Response::from_string(
+      "metrics can be viewed here",
+    )),
+    _ => request.respond(tiny_http::Response::from_string("404")),
   };
 
   if let Err(e) = result {
     eprintln!("failed to handle request: {e}")
   }
+}
+
+#[cfg(unix)]
+async fn signals(cleanup: impl FnOnce() -> ()) {
+  // TODO: handle unwrap()
+  let mut sigint =
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
+  let mut sigterm =
+    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+
+  tokio::select! {
+    _ = sigint.recv() => {
+      println!("received SIGINT");
+      cleanup()
+    },
+    _ = sigterm.recv() => {
+      println!("received SIGTERM");
+      cleanup()
+    },
+  }
+}
+
+#[cfg(windows)]
+async fn signals(cleanup: impl FnOnce() -> ()) {
+  // TODO: handle windows signals
 }
