@@ -10,9 +10,7 @@ async fn main() -> io::Result<()> {
   println!("server listening on {}", server.local_addr()?);
 
   while let Some(stream) = server.incoming().next().await {
-    task::spawn(async move {
-      return handle_connection(stream?).await;
-    });
+    task::spawn(async move { handle_connection(stream?).await });
   }
 
   Ok(())
