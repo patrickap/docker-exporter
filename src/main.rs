@@ -10,15 +10,13 @@ async fn main() -> io::Result<()> {
   println!("server listening on {}", server.local_addr()?);
 
   while let Some(stream) = server.incoming().next().await {
-    task::spawn(async move { handle_connection(stream?).await });
+    task::spawn(async { handle_connection(stream?).await });
   }
 
   Ok(())
 }
 
 async fn handle_connection(mut stream: net::TcpStream) -> io::Result<()> {
-  task::sleep(Duration::from_millis(5000)).await;
-
   let buffer_reader = io::BufReader::new(&stream);
   let request_line = buffer_reader.lines().next().await.unwrap()?;
 
