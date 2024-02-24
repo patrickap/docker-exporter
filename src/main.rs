@@ -1,34 +1,26 @@
-use async_std::{io, net, prelude::*, task};
+use actix_web;
+use std;
 
-mod config;
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+  let address = std::net::SocketAddrV4::new(std::net::Ipv4Addr::new(0, 0, 0, 0), 9630);
+  let server = actix_web::HttpServer::new(|| actix_web::App::new().service(metrics))
+    .bind(address)?
+    .workers(2)
+    .run();
 
-#[async_std::main]
-async fn main() -> io::Result<()> {
-  let server = net::TcpListener::bind(config::SERVER_ADDRESS).await?;
-  println!("server listening on {}", server.local_addr()?);
+  println!("server listening on {:?}", address);
+  server.await?;
 
-  while let Some(stream) = server.incoming().next().await {
-    task::spawn(async { handle_connection(stream?).await });
-  }
-
+  println!("server stopped");
   Ok(())
 }
 
-async fn handle_connection(mut stream: net::TcpStream) -> io::Result<()> {
-  let buffer_reader = io::BufReader::new(&stream);
-  let request_line = buffer_reader.lines().next().await.unwrap()?;
-
-  let (status, response) = if request_line == "GET / HTTP/1.1" {
-    ("HTTP/1.1 200 OK", "hello world")
-  } else {
-    ("HTTP/1.1 404 NOT FOUND", "404")
-  };
-
-  let length = response.len();
-
-  let response = format!("{status}\r\nContent-Length: {length}\r\n\r\n{response}");
-
-  stream.write_all(response.as_bytes()).await?;
-
-  Ok(())
+#[actix_web::get("/metrics")]
+async fn metrics() -> Result<impl actix_web::Responder, actix_web::Error> {
+  Ok(
+    actix_web::HttpResponse::build(actix_web::http::StatusCode::OK)
+      .content_type(actix_web::http::header::ContentType::plaintext())
+      .body("Hello World"),
+  )
 }
