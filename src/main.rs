@@ -2,6 +2,7 @@ use axum;
 use std;
 use tokio;
 
+mod collector;
 mod config;
 
 #[tokio::main]
