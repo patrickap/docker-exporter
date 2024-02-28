@@ -25,3 +25,5 @@ impl<'a> DockerCollector<'a> {
     Ok(())
   }
 }
+
+// TODO: tests
