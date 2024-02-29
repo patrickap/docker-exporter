@@ -37,7 +37,7 @@ impl DockerCollector {
         while let Some(Ok(stats)) = stats.next().await {
           let stats = Arc::new(stats);
 
-          tokio::spawn(Arc::clone(&self_p).collect_state_metrics(Arc::clone(&stats), running));
+          tokio::spawn(Arc::clone(&self_p).collect_state_metrics(running, Arc::clone(&stats)));
 
           if running {
             tokio::spawn(Arc::clone(&self_p).collect_cpu_metrics(Arc::clone(&stats)));
@@ -50,9 +50,9 @@ impl DockerCollector {
     }
   }
 
-  async fn collect_state_metrics(self: Arc<Self>, stats: Arc<container::Stats>, running: bool) {
+  async fn collect_state_metrics(self: Arc<Self>, running: bool, stats: Arc<container::Stats>) {
     println!("1. collecting state metrics");
-    println!("stats: {:?}, running: {}", stats, running)
+    println!("running: {}, stats: {:?}", running, stats)
   }
 
   async fn collect_cpu_metrics(self: Arc<Self>, stats: Arc<container::Stats>) {
