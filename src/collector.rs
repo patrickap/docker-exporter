@@ -1,16 +1,20 @@
 use bollard::{container, Docker};
 use futures::StreamExt;
-use prometheus_client::registry::Registry;
-use std::sync::Arc;
+use prometheus_client::{
+  encoding::EncodeLabelSet,
+  metrics::{family::Family, gauge::Gauge},
+  registry::Registry,
+};
+use std::sync::{Arc, Mutex};
 use tokio;
 
 pub struct DockerCollector {
   client: Arc<Docker>,
-  registry: Arc<Registry>,
+  registry: Arc<Mutex<Registry>>,
 }
 
 impl DockerCollector {
-  pub fn new(client: Arc<Docker>, registry: Arc<Registry>) -> Arc<Self> {
+  pub fn new(client: Arc<Docker>, registry: Arc<Mutex<Registry>>) -> Arc<Self> {
     Arc::new(DockerCollector { client, registry })
   }
 
@@ -77,8 +81,26 @@ impl DockerCollector {
     stats: Arc<container::Stats>,
     running: bool,
   ) {
+    // TODO: move struct to top of file
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+    struct Labels {
+      container_name: String,
+    }
+
+    let state_metric = Family::<Labels, Gauge>::default();
+    state_metric
+      .get_or_create(&Labels {
+        container_name: name.to_string(),
+      })
+      .set(running as i64);
+
+    // TODO: do not unwrap
+    self.registry.lock().unwrap().register(
+      "containers_running",
+      "Containers running (1 = running, 0 = other)",
+      state_metric,
+    );
     println!("1. collecting state metrics");
-    println!("running: {}, stats: {:?}", running, stats)
   }
 
   async fn collect_cpu_metrics(self: Arc<Self>, name: Arc<String>, stats: Arc<container::Stats>) {
