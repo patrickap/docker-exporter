@@ -26,13 +26,15 @@ impl DockerCollector {
         .take(1);
       let running = container.state.eq(&Some(String::from("running")));
 
-      while let Some(Ok(stats)) = stats.next().await {
-        tokio::spawn(
-          self
+      let self_clone = self.clone();
+      tokio::spawn(async move {
+        while let Some(Ok(stats)) = stats.next().await {
+          self_clone
             .clone()
-            .collect_metrics(std::sync::Arc::new(stats), running),
-        );
-      }
+            .collect_metrics(std::sync::Arc::new(stats), running)
+            .await;
+        }
+      });
     }
 
     Ok(())
