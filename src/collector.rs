@@ -18,24 +18,22 @@ impl<'a> DockerCollector<'a> {
 
     let containers = self.api.list_containers(options).await?;
 
-    let mut tasks = Vec::new();
+    let mut tasks = tokio::task::JoinSet::new();
 
     for container in containers {
       let running = container.state.eq(&Some(String::from("running")));
 
-      tasks.push(tokio::task::spawn(
-        self.collect_state_metrics(&container, running),
-      ));
+      tasks.spawn(self.collect_state_metrics(&container, running));
 
       if running {
-        tasks.push(tokio::task::spawn(self.collect_cpu_metrics(&container)));
-        tasks.push(tokio::task::spawn(self.collect_memory_metrics(&container)));
-        tasks.push(tokio::task::spawn(self.collect_io_metrics(&container)));
-        tasks.push(tokio::task::spawn(self.collect_network_metrics(&container)));
+        tasks.spawn(self.collect_cpu_metrics(&container));
+        tasks.spawn(self.collect_memory_metrics(&container));
+        tasks.spawn(self.collect_io_metrics(&container));
+        tasks.spawn(self.collect_network_metrics(&container));
       }
     }
 
-    let result = tokio::try_join!(tasks);
+    while let Some(_result) = tasks.join_next().await {}
 
     Ok(())
   }
