@@ -20,6 +20,7 @@ impl DockerCollector {
     let containers = self.api.list_containers(options).await?;
 
     for container in containers {
+      // TODO: do not unwrap
       let mut stats = self
         .api
         .stats(&container.id.unwrap().as_str(), Default::default())
