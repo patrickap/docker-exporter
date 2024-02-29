@@ -13,7 +13,9 @@ pub async fn metrics(axum::Extension(registry): Extension<Arc<Registry>>) -> &'s
   // TODO: use http socket set via DOCKER_HOST env
   match Docker::connect_with_socket_defaults() {
     Ok(client) => {
-      DockerCollector::new(client).collect_metrics(registry).await;
+      DockerCollector::new(Arc::new(client), registry)
+        .collect_metrics()
+        .await;
       // TODO: respond with metrics
     }
     Err(e) => {

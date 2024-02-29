@@ -6,11 +6,11 @@ use tokio::{net::TcpListener, signal};
 mod collector;
 mod config;
 
-use crate::config::{route, server};
+use crate::config::{registry, route, server};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-  let registry = Arc::new(Registry::with_prefix("docker_exporter"));
+  let registry = Arc::new(Registry::with_prefix(registry::PREFIX));
   let listener = TcpListener::bind(server::ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(route::status))

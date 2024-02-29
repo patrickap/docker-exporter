@@ -5,15 +5,16 @@ use std::sync::Arc;
 use tokio;
 
 pub struct DockerCollector {
-  client: Docker,
+  client: Arc<Docker>,
+  registry: Arc<Registry>,
 }
 
 impl DockerCollector {
-  pub fn new(client: Docker) -> Arc<Self> {
-    Arc::new(DockerCollector { client })
+  pub fn new(client: Arc<Docker>, registry: Arc<Registry>) -> Arc<Self> {
+    Arc::new(DockerCollector { client, registry })
   }
 
-  pub async fn collect_metrics(self: Arc<Self>, registry: Arc<Registry>) {
+  pub async fn collect_metrics(self: Arc<Self>) {
     let options = Some(container::ListContainersOptions::<&str> {
       all: true,
       ..Default::default()
