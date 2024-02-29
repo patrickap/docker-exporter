@@ -28,11 +28,10 @@ impl DockerCollector {
         .take(1);
       let running = container.state.eq(&Some(String::from("running")));
 
-      let self_clone = self.clone();
+      let self_clone = Arc::clone(&self);
       tokio::spawn(async move {
         while let Some(Ok(stats)) = stats.next().await {
-          self_clone
-            .clone()
+          Arc::clone(&self_clone)
             .collect_metrics(Arc::new(stats), running)
             .await;
         }
@@ -43,13 +42,13 @@ impl DockerCollector {
   }
 
   async fn collect_metrics(self: Arc<Self>, stats: Arc<container::Stats>, running: bool) {
-    tokio::spawn(self.clone().collect_state_metrics(stats.clone(), running));
+    tokio::spawn(Arc::clone(&self).collect_state_metrics(Arc::clone(&stats), running));
 
     if running {
-      tokio::spawn(self.clone().collect_cpu_metrics(stats.clone()));
-      tokio::spawn(self.clone().collect_memory_metrics(stats.clone()));
-      tokio::spawn(self.clone().collect_io_metrics(stats.clone()));
-      tokio::spawn(self.clone().collect_network_metrics(stats.clone()));
+      tokio::spawn(Arc::clone(&self).collect_cpu_metrics(Arc::clone(&stats)));
+      tokio::spawn(Arc::clone(&self).collect_memory_metrics(Arc::clone(&stats)));
+      tokio::spawn(Arc::clone(&self).collect_io_metrics(Arc::clone(&stats)));
+      tokio::spawn(Arc::clone(&self).collect_network_metrics(Arc::clone(&stats)));
     }
   }
 
