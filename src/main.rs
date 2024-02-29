@@ -16,10 +16,12 @@ async fn main() -> std::io::Result<()> {
   axum::serve(listener, router)
     .with_graceful_shutdown(async {
       if let Ok(_) = tokio::signal::ctrl_c().await {
-        println!("\nserver stopped");
+        println!("\nreceived signal; shutting down");
       }
     })
     .await?;
+
+  println!("server stopped");
 
   Ok(())
 }
