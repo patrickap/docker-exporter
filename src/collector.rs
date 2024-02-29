@@ -18,6 +18,7 @@ impl<'a> DockerCollector<'a> {
     let containers = self.api.list_containers(options).await?;
 
     for container in containers {
+      // TODO: do concurrently
       let running = container.state.eq(&Some(String::from("running")));
       self.collectStateMetrics(&container, running).await;
 
