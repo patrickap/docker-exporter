@@ -38,12 +38,25 @@ impl<'a> DockerCollector<'a> {
     container: &bollard::models::ContainerSummary,
     running: bool,
   ) {
+    println!("collecting state metrics");
     println!("id: {:?}, running: {}", container.id, running)
   }
-  async fn collectCPUMetrics(&self, container: &bollard::models::ContainerSummary) {}
-  async fn collectMemoryMetrics(&self, container: &bollard::models::ContainerSummary) {}
-  async fn collectIOMetrics(&self, container: &bollard::models::ContainerSummary) {}
-  async fn collectNetworkMetrics(&self, container: &bollard::models::ContainerSummary) {}
+
+  async fn collectCPUMetrics(&self, container: &bollard::models::ContainerSummary) {
+    println!("collecting cpu metrics");
+  }
+
+  async fn collectMemoryMetrics(&self, container: &bollard::models::ContainerSummary) {
+    println!("collecting memory metrics");
+  }
+
+  async fn collectIOMetrics(&self, container: &bollard::models::ContainerSummary) {
+    println!("collecting io metrics");
+  }
+
+  async fn collectNetworkMetrics(&self, container: &bollard::models::ContainerSummary) {
+    println!("collecting network metrics");
+  }
 }
 
 // TODO: tests
