@@ -1,9 +1,6 @@
-use std::future;
-
-use ::futures::StreamExt;
-use axum::error_handling::future;
-use bollard::{self, container::Stats};
-use tokio::{self, join, sync::futures, try_join};
+use bollard;
+use futures::StreamExt;
+use tokio;
 
 pub struct DockerCollector {
   api: bollard::Docker,
