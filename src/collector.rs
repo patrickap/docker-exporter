@@ -35,9 +35,6 @@ impl DockerCollector {
             .collect_metrics(std::sync::Arc::new(stats), running),
         );
       }
-
-      // TODO: better way to wait for all?
-      while let Some(_) = tasks.join_next().await {}
     }
 
     Ok(())
@@ -58,9 +55,6 @@ impl DockerCollector {
       tasks.spawn(self.clone().collect_io_metrics(stats.clone()));
       tasks.spawn(self.clone().collect_network_metrics(stats.clone()));
     }
-
-    // TODO: better way to wait for all?
-    while let Some(_) = tasks.join_next().await {}
   }
 
   async fn collect_state_metrics(
