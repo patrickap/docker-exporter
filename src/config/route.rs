@@ -9,11 +9,11 @@ pub async fn status() -> &'static str {
   "ok"
 }
 
-pub async fn metrics(registry: Extension<Arc<Registry>>) -> &'static str {
+pub async fn metrics(axum::Extension(registry): Extension<Arc<Registry>>) -> &'static str {
   // TODO: use http socket set via DOCKER_HOST env
   match Docker::connect_with_socket_defaults() {
-    Ok(api) => {
-      let metrics = DockerCollector::new(api).collect_metrics().await;
+    Ok(client) => {
+      DockerCollector::new(client).collect_metrics(registry).await;
       // TODO: respond with metrics
     }
     Err(e) => {

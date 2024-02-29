@@ -1,5 +1,6 @@
 use bollard::{container, Docker};
 use futures::StreamExt;
+use prometheus_client::registry::Registry;
 use std::sync::Arc;
 use tokio;
 
@@ -12,7 +13,7 @@ impl DockerCollector {
     Arc::new(DockerCollector { client })
   }
 
-  pub async fn collect_metrics(self: Arc<Self>) {
+  pub async fn collect_metrics(self: Arc<Self>, registry: Arc<Registry>) {
     let options = Some(container::ListContainersOptions::<&str> {
       all: true,
       ..Default::default()
