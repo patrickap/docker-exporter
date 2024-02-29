@@ -26,10 +26,8 @@ impl DockerCollector {
         .take(1);
       let running = container.state.eq(&Some(String::from("running")));
 
-      let mut tasks = tokio::task::JoinSet::new();
-
       while let Some(Ok(stats)) = stats.next().await {
-        tasks.spawn(
+        tokio::spawn(
           self
             .clone()
             .collect_metrics(std::sync::Arc::new(stats), running),
@@ -45,15 +43,13 @@ impl DockerCollector {
     stats: std::sync::Arc<bollard::container::Stats>,
     running: bool,
   ) {
-    let mut tasks = tokio::task::JoinSet::new();
-
-    tasks.spawn(self.clone().collect_state_metrics(stats.clone(), running));
+    tokio::spawn(self.clone().collect_state_metrics(stats.clone(), running));
 
     if running {
-      tasks.spawn(self.clone().collect_cpu_metrics(stats.clone()));
-      tasks.spawn(self.clone().collect_memory_metrics(stats.clone()));
-      tasks.spawn(self.clone().collect_io_metrics(stats.clone()));
-      tasks.spawn(self.clone().collect_network_metrics(stats.clone()));
+      tokio::spawn(self.clone().collect_cpu_metrics(stats.clone()));
+      tokio::spawn(self.clone().collect_memory_metrics(stats.clone()));
+      tokio::spawn(self.clone().collect_io_metrics(stats.clone()));
+      tokio::spawn(self.clone().collect_network_metrics(stats.clone()));
     }
   }
 
