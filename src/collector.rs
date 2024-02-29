@@ -12,43 +12,41 @@ impl DockerCollector {
     Arc::new(DockerCollector { client })
   }
 
-  pub async fn collect(self: Arc<Self>) -> Result<(), bollard::errors::Error> {
+  pub async fn collect_metrics(self: Arc<Self>) {
     let options = Some(container::ListContainersOptions::<&str> {
       all: true,
       ..Default::default()
     });
 
-    let containers = self.client.list_containers(options).await?;
+    let containers = self
+      .client
+      .list_containers(options)
+      .await
+      .unwrap_or_default();
 
     for container in containers {
-      // TODO: do not unwrap
+      let running = container.state.eq(&Some(String::from("running")));
       let mut stats = self
         .client
-        .stats(&container.id.unwrap().as_str(), Default::default())
+        .stats(&container.id.unwrap_or_default(), Default::default())
         .take(1);
-      let running = container.state.eq(&Some(String::from("running")));
 
-      let self_clone = Arc::clone(&self);
+      let self_p = Arc::clone(&self);
+
       tokio::spawn(async move {
         while let Some(Ok(stats)) = stats.next().await {
-          Arc::clone(&self_clone)
-            .collect_metrics(Arc::new(stats), running)
-            .await;
+          let stats = Arc::new(stats);
+
+          tokio::spawn(Arc::clone(&self_p).collect_state_metrics(Arc::clone(&stats), running));
+
+          if running {
+            tokio::spawn(Arc::clone(&self_p).collect_cpu_metrics(Arc::clone(&stats)));
+            tokio::spawn(Arc::clone(&self_p).collect_memory_metrics(Arc::clone(&stats)));
+            tokio::spawn(Arc::clone(&self_p).collect_io_metrics(Arc::clone(&stats)));
+            tokio::spawn(Arc::clone(&self_p).collect_network_metrics(Arc::clone(&stats)));
+          }
         }
       });
-    }
-
-    Ok(())
-  }
-
-  async fn collect_metrics(self: Arc<Self>, stats: Arc<container::Stats>, running: bool) {
-    tokio::spawn(Arc::clone(&self).collect_state_metrics(Arc::clone(&stats), running));
-
-    if running {
-      tokio::spawn(Arc::clone(&self).collect_cpu_metrics(Arc::clone(&stats)));
-      tokio::spawn(Arc::clone(&self).collect_memory_metrics(Arc::clone(&stats)));
-      tokio::spawn(Arc::clone(&self).collect_io_metrics(Arc::clone(&stats)));
-      tokio::spawn(Arc::clone(&self).collect_network_metrics(Arc::clone(&stats)));
     }
   }
 

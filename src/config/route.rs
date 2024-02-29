@@ -10,7 +10,7 @@ pub async fn metrics() -> &'static str {
   // TODO: use http socket set via DOCKER_HOST env
   match Docker::connect_with_socket_defaults() {
     Ok(api) => {
-      let metrics = DockerCollector::new(api).collect().await;
+      let metrics = DockerCollector::new(api).collect_metrics().await;
       // TODO: respond with metrics
     }
     Err(e) => {
