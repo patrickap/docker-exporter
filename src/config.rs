@@ -12,7 +12,8 @@ pub mod routes {
   }
 
   pub async fn metrics() -> &'static str {
-    match bollard::Docker::connect_with_http_defaults() {
+    // TODO: use http socket set via DOCKER_HOST env
+    match bollard::Docker::connect_with_socket_defaults() {
       Ok(api) => {
         let metrics = super::collector::DockerCollector::new(&api).collect().await;
         // TODO: respond with metrics
