@@ -1,4 +1,5 @@
 use bollard;
+use tokio::{self, join, try_join};
 
 pub struct DockerCollector<'a> {
   api: &'a bollard::Docker,
@@ -17,23 +18,29 @@ impl<'a> DockerCollector<'a> {
 
     let containers = self.api.list_containers(options).await?;
 
+    let mut tasks = Vec::new();
+
     for container in containers {
-      // TODO: do concurrently
       let running = container.state.eq(&Some(String::from("running")));
-      self.collectStateMetrics(&container, running).await;
+
+      tasks.push(tokio::task::spawn(
+        self.collect_state_metrics(&container, running),
+      ));
 
       if running {
-        self.collectCPUMetrics(&container).await;
-        self.collectMemoryMetrics(&container).await;
-        self.collectIOMetrics(&container).await;
-        self.collectNetworkMetrics(&container).await;
+        tasks.push(tokio::task::spawn(self.collect_cpu_metrics(&container)));
+        tasks.push(tokio::task::spawn(self.collect_memory_metrics(&container)));
+        tasks.push(tokio::task::spawn(self.collect_io_metrics(&container)));
+        tasks.push(tokio::task::spawn(self.collect_network_metrics(&container)));
       }
     }
+
+    let result = tokio::try_join!(tasks);
 
     Ok(())
   }
 
-  async fn collectStateMetrics(
+  async fn collect_state_metrics(
     &self,
     container: &bollard::models::ContainerSummary,
     running: bool,
@@ -42,19 +49,19 @@ impl<'a> DockerCollector<'a> {
     println!("id: {:?}, running: {}", container.id, running)
   }
 
-  async fn collectCPUMetrics(&self, container: &bollard::models::ContainerSummary) {
+  async fn collect_cpu_metrics(&self, container: &bollard::models::ContainerSummary) {
     println!("collecting cpu metrics");
   }
 
-  async fn collectMemoryMetrics(&self, container: &bollard::models::ContainerSummary) {
+  async fn collect_memory_metrics(&self, container: &bollard::models::ContainerSummary) {
     println!("collecting memory metrics");
   }
 
-  async fn collectIOMetrics(&self, container: &bollard::models::ContainerSummary) {
+  async fn collect_io_metrics(&self, container: &bollard::models::ContainerSummary) {
     println!("collecting io metrics");
   }
 
-  async fn collectNetworkMetrics(&self, container: &bollard::models::ContainerSummary) {
+  async fn collect_network_metrics(&self, container: &bollard::models::ContainerSummary) {
     println!("collecting network metrics");
   }
 }
