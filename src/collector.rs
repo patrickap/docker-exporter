@@ -35,15 +35,15 @@ impl DockerCollector {
 
       tokio::spawn(async move {
         while let Some(Ok(stats)) = stats.next().await {
-          let stats = Arc::new(stats);
+          let stats_p = Arc::new(stats);
 
-          tokio::spawn(Arc::clone(&self_p).collect_state_metrics(running, Arc::clone(&stats)));
+          tokio::spawn(Arc::clone(&self_p).collect_state_metrics(running, Arc::clone(&stats_p)));
 
           if running {
-            tokio::spawn(Arc::clone(&self_p).collect_cpu_metrics(Arc::clone(&stats)));
-            tokio::spawn(Arc::clone(&self_p).collect_memory_metrics(Arc::clone(&stats)));
-            tokio::spawn(Arc::clone(&self_p).collect_io_metrics(Arc::clone(&stats)));
-            tokio::spawn(Arc::clone(&self_p).collect_network_metrics(Arc::clone(&stats)));
+            tokio::spawn(Arc::clone(&self_p).collect_cpu_metrics(Arc::clone(&stats_p)));
+            tokio::spawn(Arc::clone(&self_p).collect_memory_metrics(Arc::clone(&stats_p)));
+            tokio::spawn(Arc::clone(&self_p).collect_io_metrics(Arc::clone(&stats_p)));
+            tokio::spawn(Arc::clone(&self_p).collect_network_metrics(Arc::clone(&stats_p)));
           }
         }
       });
