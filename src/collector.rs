@@ -136,6 +136,7 @@ impl DockerCollector {
 
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
+    // TODO: comment why this is needed, there is no async implementation so we need to execute this blocking
     tokio::task::block_in_place(|| {
       let mut rx = executor::block_on(self.collect_metrics());
       while let Some(metric) = rx.blocking_recv() {
