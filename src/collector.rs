@@ -1,21 +1,22 @@
 use bollard::{container, Docker};
 use futures::StreamExt;
 use prometheus_client::{
-  encoding::EncodeLabelSet,
-  metrics::{family::Family, gauge::Gauge},
+  collector::Collector,
+  encoding::{self, EncodeLabelSet, EncodeMetric},
+  metrics::{self, counter, family::Family, gauge::Gauge},
   registry::Registry,
 };
 use std::sync::{Arc, Mutex};
 use tokio;
 
+#[derive(Debug)]
 pub struct DockerCollector {
-  client: Arc<Docker>,
-  registry: Arc<Mutex<Registry>>,
+  client: Docker,
 }
 
 impl DockerCollector {
-  pub fn new(client: Arc<Docker>, registry: Arc<Mutex<Registry>>) -> Arc<Self> {
-    Arc::new(DockerCollector { client, registry })
+  pub fn new(client: Docker) -> Self {
+    DockerCollector { client }
   }
 
   pub async fn collect_metrics(self: Arc<Self>) {
@@ -31,47 +32,44 @@ impl DockerCollector {
       .unwrap_or_default();
 
     for container in containers {
-      let name = container
-        .names
-        .and_then(|names| Some(names.join(";")))
-        .map(|names| names[1..].to_string())
-        .unwrap_or_default();
+      let name = Arc::new(
+        container
+          .names
+          .and_then(|names| Some(names.join(";")))
+          .map(|names| names[1..].to_string())
+          .unwrap_or_default(),
+      );
+
+      // TODO: do not unwrap
+      let stats = Arc::new(
+        self
+          .client
+          .stats(&container.id.unwrap_or_default(), Default::default())
+          .take(1)
+          .next()
+          .await
+          .unwrap()
+          .unwrap(),
+      );
+
       let running = container.state.eq(&Some(String::from("running")));
-      let mut stats = self
-        .client
-        .stats(&container.id.unwrap_or_default(), Default::default())
-        .take(1);
 
-      let self_p = Arc::clone(&self);
-      let name_p = Arc::new(name);
+      tokio::spawn(Arc::clone(&self).collect_state_metrics(
+        Arc::clone(&name),
+        Arc::clone(&stats),
+        running,
+      ));
 
-      tokio::spawn(async move {
-        while let Some(Ok(stats)) = stats.next().await {
-          let stats_p = Arc::new(stats);
-
-          tokio::spawn(Arc::clone(&self_p).collect_state_metrics(
-            Arc::clone(&name_p),
-            Arc::clone(&stats_p),
-            running,
-          ));
-
-          if running {
-            tokio::spawn(
-              Arc::clone(&self_p).collect_cpu_metrics(Arc::clone(&name_p), Arc::clone(&stats_p)),
-            );
-            tokio::spawn(
-              Arc::clone(&self_p).collect_memory_metrics(Arc::clone(&name_p), Arc::clone(&stats_p)),
-            );
-            tokio::spawn(
-              Arc::clone(&self_p).collect_io_metrics(Arc::clone(&name_p), Arc::clone(&stats_p)),
-            );
-            tokio::spawn(
-              Arc::clone(&self_p)
-                .collect_network_metrics(Arc::clone(&name_p), Arc::clone(&stats_p)),
-            );
-          }
-        }
-      });
+      if running {
+        tokio::spawn(Arc::clone(&self).collect_cpu_metrics(Arc::clone(&name), Arc::clone(&stats)));
+        tokio::spawn(
+          Arc::clone(&self).collect_memory_metrics(Arc::clone(&name), Arc::clone(&stats)),
+        );
+        tokio::spawn(Arc::clone(&self).collect_io_metrics(Arc::clone(&name), Arc::clone(&stats)));
+        tokio::spawn(
+          Arc::clone(&self).collect_network_metrics(Arc::clone(&name), Arc::clone(&stats)),
+        );
+      }
     }
   }
 
@@ -94,12 +92,6 @@ impl DockerCollector {
       })
       .set(running as i64);
 
-    // TODO: do not unwrap
-    self.registry.lock().unwrap().register(
-      "containers_running",
-      "Containers running (1 = running, 0 = other)",
-      state_metric,
-    );
     println!("1. collecting state metrics");
   }
 
@@ -125,6 +117,16 @@ impl DockerCollector {
     stats: Arc<container::Stats>,
   ) {
     println!("5. collecting network metrics");
+  }
+}
+
+impl Collector for DockerCollector {
+  fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
+    let counter = counter::ConstCounter::new(42);
+    let metric_encoder =
+      encoder.encode_descriptor("my_counter", "some help", None, counter.metric_type())?;
+    counter.encode(metric_encoder)?;
+    Ok(())
   }
 }
 

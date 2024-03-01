@@ -10,19 +10,6 @@ pub async fn status() -> &'static str {
 }
 
 pub async fn metrics(axum::Extension(registry): Extension<Arc<Mutex<Registry>>>) -> String {
-  // TODO: use http socket set via DOCKER_HOST env
-  match Docker::connect_with_socket_defaults() {
-    Ok(client) => {
-      DockerCollector::new(Arc::new(client), Arc::clone(&registry))
-        .collect_metrics()
-        .await;
-      // TODO: respond with metrics
-    }
-    Err(e) => {
-      eprintln!("failed to connect to docker daemon: {}", e);
-    }
-  }
-
   // TODO: do not unwrap
   let mut encoded = String::new();
   text::encode(&mut encoded, &registry.lock().unwrap()).unwrap();
