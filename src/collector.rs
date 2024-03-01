@@ -50,7 +50,7 @@ impl DockerCollector {
           .unwrap_or_default(),
       );
 
-      // TODO: do not unwrap
+      // TODO: do not unwrap, should not await here to not block the loop
       let stats = Arc::new(
         self
           .client
