@@ -52,8 +52,9 @@ impl Collector<Docker> for DockerCollector {
       Arc<Mutex<mpsc::Receiver<Self::Metric>>>,
     ),
   ) {
+    let docker_p = Arc::new(docker);
     tokio::spawn(async move {
-      let containers = docker
+      let containers = Arc::clone(&docker_p)
         .list_containers(Some(container::ListContainersOptions::<&str> {
           all: true,
           ..Default::default()
@@ -62,39 +63,44 @@ impl Collector<Docker> for DockerCollector {
         .unwrap_or_default();
 
       for container in containers {
-        let running = container.state.eq(&Some(String::from("running")));
-
-        let name = Arc::new(
-          container
-            .names
-            .and_then(|names| Some(names.join(";")))
-            .map(|names| names[1..].to_string())
-            .unwrap_or_default(),
-        );
-
-        let stats = Arc::new(
-          docker
-            .stats(&container.id.unwrap_or_default(), Default::default())
-            .take(1)
-            .next()
-            .await
-            .unwrap()
-            .unwrap(),
-        );
+        let docker_p_p = Arc::clone(&docker_p);
 
         // TODO: better way without using ref...?
         let (ref tx, _) = channel;
         let tx = Arc::clone(&tx);
-        tokio::spawn(async move {
-          let metric =
-            DockerCollector::new_state_metric(running, Arc::clone(&name), Arc::clone(&stats));
-          // TODO: do not unwrap
-          tx.send(metric).await.unwrap();
-        });
 
-        if running {
-          // TODO: collect other metrics
-        }
+        tokio::spawn(async move {
+          let running = container.state.eq(&Some(String::from("running")));
+
+          let name = Arc::new(
+            container
+              .names
+              .and_then(|names| Some(names.join(";")))
+              .map(|names| names[1..].to_string())
+              .unwrap_or_default(),
+          );
+
+          let stats = Arc::new(
+            Arc::clone(&docker_p_p)
+              .stats(&container.id.unwrap_or_default(), Default::default())
+              .take(1)
+              .next()
+              .await
+              .unwrap()
+              .unwrap(),
+          );
+
+          tokio::spawn(async move {
+            let metric =
+              DockerCollector::new_state_metric(running, Arc::clone(&name), Arc::clone(&stats));
+            // TODO: do not unwrap
+            tx.send(metric).await.unwrap();
+          });
+
+          if running {
+            // TODO: collect other metrics
+          }
+        });
       }
     });
   }
