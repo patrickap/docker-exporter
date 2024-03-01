@@ -5,10 +5,7 @@ use prometheus_client::{
   metrics::{family, gauge},
   registry,
 };
-use std::{
-  cell::RefCell,
-  sync::{Arc, Mutex, RwLock},
-};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 pub trait Collector<S> {

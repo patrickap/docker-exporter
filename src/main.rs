@@ -1,25 +1,19 @@
 use axum::{routing, Router};
-use bollard::Docker;
 use prometheus_client::registry::Registry;
-use std::{
-  io,
-  sync::{Arc, Mutex},
-};
+use std::{io, sync::Arc};
 use tokio::{net::TcpListener, signal};
 
 mod collector;
 mod config;
 
-use crate::collector::DockerCollector;
+use crate::collector::{Collector, DockerCollector};
 use crate::config::{registry, route, server};
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
   let mut registry = Registry::with_prefix(registry::PREFIX);
   // TODO: do not unwrap, use http socket
-  registry.register_collector(Box::new(DockerCollector::new(
-    Docker::connect_with_socket_defaults().unwrap(),
-  )));
+  registry.register_collector(Box::new(DockerCollector::new()));
 
   let listener = TcpListener::bind(server::ADDRESS).await?;
   let router = Router::new()
