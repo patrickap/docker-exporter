@@ -9,17 +9,16 @@ use prometheus_client::{
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-pub struct DockerMetricLabels {
-  container_name: String,
-}
-
 pub struct DockerMetric {
   name: String,
   help: String,
   metric: Box<dyn Metric>,
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct DockerMetricLabels {
+  container_name: String,
+}
 #[derive(Debug)]
 pub struct DockerCollector {
   client: Docker,
