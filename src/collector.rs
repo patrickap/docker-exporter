@@ -19,19 +19,19 @@ impl DockerCollector {
     DockerCollector { client }
   }
 
-  pub async fn collect_metrics(self: Arc<Self>) {
-    let options = Some(container::ListContainersOptions::<&str> {
-      all: true,
-      ..Default::default()
-    });
-
+  pub async fn collect_metrics(&self) {
     let containers = self
       .client
-      .list_containers(options)
+      .list_containers(Some(container::ListContainersOptions::<&str> {
+        all: true,
+        ..Default::default()
+      }))
       .await
       .unwrap_or_default();
 
     for container in containers {
+      let running = container.state.eq(&Some(String::from("running")));
+
       let name = Arc::new(
         container
           .names
@@ -52,70 +52,50 @@ impl DockerCollector {
           .unwrap(),
       );
 
-      let running = container.state.eq(&Some(String::from("running")));
-
-      tokio::spawn(Arc::clone(&self).collect_state_metrics(
+      tokio::spawn(DockerCollector::new_state_metric(
+        running,
         Arc::clone(&name),
         Arc::clone(&stats),
-        running,
       ));
 
       if running {
-        tokio::spawn(Arc::clone(&self).collect_cpu_metrics(Arc::clone(&name), Arc::clone(&stats)));
-        tokio::spawn(
-          Arc::clone(&self).collect_memory_metrics(Arc::clone(&name), Arc::clone(&stats)),
-        );
-        tokio::spawn(Arc::clone(&self).collect_io_metrics(Arc::clone(&name), Arc::clone(&stats)));
-        tokio::spawn(
-          Arc::clone(&self).collect_network_metrics(Arc::clone(&name), Arc::clone(&stats)),
-        );
+        tokio::spawn(DockerCollector::new_cpu_metric(
+          Arc::clone(&name),
+          Arc::clone(&stats),
+        ));
+        tokio::spawn(DockerCollector::new_memory_metric(
+          Arc::clone(&name),
+          Arc::clone(&stats),
+        ));
+        tokio::spawn(DockerCollector::new_io_metric(
+          Arc::clone(&name),
+          Arc::clone(&stats),
+        ));
+        tokio::spawn(DockerCollector::new_network_metric(
+          Arc::clone(&name),
+          Arc::clone(&stats),
+        ));
       }
     }
   }
 
-  async fn collect_state_metrics(
-    self: Arc<Self>,
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
-    running: bool,
-  ) {
-    // TODO: move struct to top of file
-    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-    struct Labels {
-      container_name: String,
-    }
-
-    let state_metric = Family::<Labels, Gauge>::default();
-    state_metric
-      .get_or_create(&Labels {
-        container_name: name.to_string(),
-      })
-      .set(running as i64);
-
+  async fn new_state_metric(running: bool, name: Arc<String>, stats: Arc<container::Stats>) {
     println!("1. collecting state metrics");
   }
 
-  async fn collect_cpu_metrics(self: Arc<Self>, name: Arc<String>, stats: Arc<container::Stats>) {
+  async fn new_cpu_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("2. collecting cpu metrics");
   }
 
-  async fn collect_memory_metrics(
-    self: Arc<Self>,
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
-  ) {
+  async fn new_memory_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("3. collecting memory metrics");
   }
 
-  async fn collect_io_metrics(self: Arc<Self>, name: Arc<String>, stats: Arc<container::Stats>) {
+  async fn new_io_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("4. collecting io metrics");
   }
 
-  async fn collect_network_metrics(
-    self: Arc<Self>,
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
-  ) {
+  async fn new_network_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("5. collecting network metrics");
   }
 }
