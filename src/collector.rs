@@ -29,7 +29,7 @@ impl DockerCollector {
     DockerCollector { client }
   }
 
-  pub async fn collect_metrics(&self) -> mpsc::Receiver<DockerMetric> {
+  pub async fn collect_metrics(&self, tx: Arc<mpsc::Sender<DockerMetric>>) {
     let containers = self
       .client
       .list_containers(Some(container::ListContainersOptions::<&str> {
@@ -38,9 +38,6 @@ impl DockerCollector {
       }))
       .await
       .unwrap_or_default();
-
-    let (tx, rx) = mpsc::channel::<DockerMetric>(32);
-    let tx = Arc::new(tx);
 
     for container in containers {
       let running = container.state.eq(&Some(String::from("running")));
@@ -70,7 +67,7 @@ impl DockerCollector {
       tokio::spawn(async move {
         let metric =
           DockerCollector::new_state_metric(running, Arc::clone(&name), Arc::clone(&stats));
-        // TODO: do not unwrap
+        // TODO: do not unwrap, what about await here?
         tx.send(metric).await.unwrap();
       });
 
@@ -93,8 +90,6 @@ impl DockerCollector {
       //   ));
       // }
     }
-
-    rx
   }
 
   fn new_state_metric(
@@ -136,9 +131,13 @@ impl DockerCollector {
 
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
-    // TODO: comment why this is needed, there is no async implementation so we need to execute this blocking
+    // TODO: comment why this is all needed, there is no async implementation so we need to execute this blocking
+
     tokio::task::block_in_place(|| {
-      let mut rx = executor::block_on(self.collect_metrics());
+      let (tx, mut rx) = mpsc::channel::<DockerMetric>(32);
+
+      executor::block_on(self.collect_metrics(Arc::new(tx)));
+
       while let Some(metric) = rx.blocking_recv() {
         // TODO: do not unwrap
         let metric_encoder = encoder
