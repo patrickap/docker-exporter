@@ -1,9 +1,6 @@
 use axum::Extension;
-use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::{Arc, Mutex};
-
-use crate::collector::DockerCollector;
 
 pub async fn status() -> &'static str {
   "ok"

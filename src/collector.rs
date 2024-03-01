@@ -1,13 +1,14 @@
 use bollard::{container, Docker};
-use futures::StreamExt;
-use prometheus_client::{
-  collector::Collector,
-  encoding::{self, EncodeLabelSet, EncodeMetric},
-  metrics::{self, counter, family::Family, gauge::Gauge},
-  registry::Registry,
-};
-use std::sync::{Arc, Mutex};
-use tokio;
+use futures::{executor, StreamExt};
+use prometheus_client::{collector::Collector, encoding, metrics::gauge::Gauge, registry::Metric};
+use std::sync::Arc;
+use tokio::sync::mpsc;
+
+pub struct DockerMetric {
+  name: String,
+  help: String,
+  metric: Box<dyn Metric>,
+}
 
 #[derive(Debug)]
 pub struct DockerCollector {
@@ -19,7 +20,7 @@ impl DockerCollector {
     DockerCollector { client }
   }
 
-  pub async fn collect_metrics(&self) {
+  pub async fn collect_metrics(&self) -> mpsc::Receiver<DockerMetric> {
     let containers = self
       .client
       .list_containers(Some(container::ListContainersOptions::<&str> {
@@ -28,6 +29,9 @@ impl DockerCollector {
       }))
       .await
       .unwrap_or_default();
+
+    let (tx, rx) = mpsc::channel::<DockerMetric>(32);
+    let tx = Arc::new(tx);
 
     for container in containers {
       let running = container.state.eq(&Some(String::from("running")));
@@ -52,60 +56,90 @@ impl DockerCollector {
           .unwrap(),
       );
 
-      tokio::spawn(DockerCollector::new_state_metric(
-        running,
-        Arc::clone(&name),
-        Arc::clone(&stats),
-      ));
+      let tx = Arc::clone(&tx);
 
-      if running {
-        tokio::spawn(DockerCollector::new_cpu_metric(
-          Arc::clone(&name),
-          Arc::clone(&stats),
-        ));
-        tokio::spawn(DockerCollector::new_memory_metric(
-          Arc::clone(&name),
-          Arc::clone(&stats),
-        ));
-        tokio::spawn(DockerCollector::new_io_metric(
-          Arc::clone(&name),
-          Arc::clone(&stats),
-        ));
-        tokio::spawn(DockerCollector::new_network_metric(
-          Arc::clone(&name),
-          Arc::clone(&stats),
-        ));
-      }
+      tokio::spawn(async move {
+        let metric =
+          DockerCollector::new_state_metric(running, Arc::clone(&name), Arc::clone(&stats));
+        // TODO: do not unwrap
+        tx.send(metric).await.unwrap();
+      });
+
+      // if running {
+      //   tokio::spawn(DockerCollector::new_cpu_metric(
+      //     Arc::clone(&name),
+      //     Arc::clone(&stats),
+      //   ));
+      //   tokio::spawn(DockerCollector::new_memory_metric(
+      //     Arc::clone(&name),
+      //     Arc::clone(&stats),
+      //   ));
+      //   tokio::spawn(DockerCollector::new_io_metric(
+      //     Arc::clone(&name),
+      //     Arc::clone(&stats),
+      //   ));
+      //   tokio::spawn(DockerCollector::new_network_metric(
+      //     Arc::clone(&name),
+      //     Arc::clone(&stats),
+      //   ));
+      // }
+    }
+
+    rx
+  }
+
+  fn new_state_metric(
+    running: bool,
+    name: Arc<String>,
+    stats: Arc<container::Stats>,
+  ) -> DockerMetric {
+    let metric: Gauge = Default::default();
+    metric.set(running as i64);
+
+    DockerMetric {
+      name: String::from("container_running"),
+      help: String::from("container running (1 = running, 0 = other)"),
+      metric: Box::new(metric),
     }
   }
 
-  async fn new_state_metric(running: bool, name: Arc<String>, stats: Arc<container::Stats>) {
-    println!("1. collecting state metrics");
-  }
-
-  async fn new_cpu_metric(name: Arc<String>, stats: Arc<container::Stats>) {
+  fn new_cpu_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("2. collecting cpu metrics");
   }
 
-  async fn new_memory_metric(name: Arc<String>, stats: Arc<container::Stats>) {
+  fn new_memory_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("3. collecting memory metrics");
   }
 
-  async fn new_io_metric(name: Arc<String>, stats: Arc<container::Stats>) {
+  fn new_io_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("4. collecting io metrics");
   }
 
-  async fn new_network_metric(name: Arc<String>, stats: Arc<container::Stats>) {
+  fn new_network_metric(name: Arc<String>, stats: Arc<container::Stats>) {
     println!("5. collecting network metrics");
   }
 }
 
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
-    let counter = counter::ConstCounter::new(42);
-    let metric_encoder =
-      encoder.encode_descriptor("my_counter", "some help", None, counter.metric_type())?;
-    counter.encode(metric_encoder)?;
+    tokio::task::block_in_place(|| {
+      let mut rx = executor::block_on(self.collect_metrics());
+      while let Some(metric) = rx.blocking_recv() {
+        // TODO: do not unwrap
+        let metric_encoder = encoder
+          .encode_descriptor(
+            &metric.name,
+            &metric.help,
+            None,
+            metric.metric.metric_type(),
+          )
+          .unwrap();
+
+        // TODO: do not unwrap
+        metric.metric.encode(metric_encoder).unwrap();
+      }
+    });
+
     Ok(())
   }
 }
