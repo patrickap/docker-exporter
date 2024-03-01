@@ -1,8 +1,18 @@
 use bollard::{container, Docker};
 use futures::{executor, StreamExt};
-use prometheus_client::{collector::Collector, encoding, metrics::gauge::Gauge, registry::Metric};
+use prometheus_client::{
+  collector::Collector,
+  encoding::{self, EncodeLabelSet},
+  metrics::{family::Family, gauge::Gauge},
+  registry::Metric,
+};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct DockerMetricLabels {
+  container_name: String,
+}
 
 pub struct DockerMetric {
   name: String,
@@ -93,8 +103,13 @@ impl DockerCollector {
     name: Arc<String>,
     stats: Arc<container::Stats>,
   ) -> DockerMetric {
-    let metric: Gauge = Default::default();
-    metric.set(running as i64);
+    let metric = Family::<DockerMetricLabels, Gauge>::default();
+    metric
+      .get_or_create(&DockerMetricLabels {
+        // TODO: is to_string here ok?
+        container_name: name.to_string(),
+      })
+      .set(running as i64);
 
     DockerMetric {
       name: String::from("container_running"),
