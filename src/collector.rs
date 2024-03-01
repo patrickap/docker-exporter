@@ -127,31 +127,24 @@ impl collector::Collector for DockerCollector {
     let channel = mpsc::channel::<DockerMetric>(32);
     self.collect(&docker, &channel);
 
-    let encoder = Arc::new(RefCell::new(encoder));
-
-    tokio::task::spawn(async {
+    // spawn local as DescriptorEncoder is not thread safe
+    tokio::task::spawn_local(async {
       let (_, rx) = channel;
       while let Some(metric) = rx.recv().await {
-        let e = &encoder.clone();
+        // TODO: do not unwrap
+        let metric_encoder = encoder
+          .encode_descriptor(
+            &metric.name,
+            &metric.help,
+            None,
+            metric.metric.metric_type(),
+          )
+          .unwrap();
+
+        // TODO: do not unwrap
+        metric.metric.encode(metric_encoder).unwrap();
       }
     });
-
-    // tokio::task::block_in_place(|| {
-    //   while let Some(metric) = rx.blocking_recv() {
-    //     // TODO: do not unwrap
-    //     let metric_encoder = encoder
-    //       .encode_descriptor(
-    //         &metric.name,
-    //         &metric.help,
-    //         None,
-    //         metric.metric.metric_type(),
-    //       )
-    //       .unwrap();
-
-    //     // TODO: do not unwrap
-    //     metric.metric.encode(metric_encoder).unwrap();
-    //   }
-    // });
 
     Ok(())
   }
