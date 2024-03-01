@@ -5,7 +5,7 @@ use prometheus_client::{
   metrics::{family, gauge},
   registry,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 pub trait Collector<S> {
@@ -18,7 +18,7 @@ pub trait Collector<S> {
     // TODO: makes this param and Arc<_> type sense when there can only be one receiver?
     channel: (
       Arc<mpsc::Sender<Self::Metric>>,
-      Arc<mpsc::Receiver<Self::Metric>>,
+      Arc<Mutex<mpsc::Receiver<Self::Metric>>>,
     ),
   ) -> ();
 }
@@ -49,7 +49,7 @@ impl Collector<Docker> for DockerCollector {
     docker: Docker,
     channel: (
       Arc<mpsc::Sender<Self::Metric>>,
-      Arc<mpsc::Receiver<Self::Metric>>,
+      Arc<Mutex<mpsc::Receiver<Self::Metric>>>,
     ),
   ) {
     tokio::spawn(async move {
@@ -82,8 +82,8 @@ impl Collector<Docker> for DockerCollector {
             .unwrap(),
         );
 
+        // TODO: better way without using ref...?
         let (ref tx, _) = channel;
-
         let tx = Arc::clone(&tx);
         tokio::spawn(async move {
           let metric =
@@ -132,11 +132,15 @@ impl collector::Collector for DockerCollector {
     // TODO: do not unwrap
     let docker = Docker::connect_with_socket_defaults().unwrap();
     let (tx, rx) = mpsc::channel::<DockerMetric>(32);
-    self.collect(docker, (Arc::new(tx), Arc::new(rx)));
+    let (tx, rx) = (Arc::new(tx), Arc::new(Mutex::new(rx)));
+
+    // TODO: better way than rx_p here?
+    let rx_p = Arc::clone(&rx);
 
     // spawn local as DescriptorEncoder is not thread safe
-    tokio::task::spawn_local(async {
-      while let Some(metric) = rx.recv().await {
+    tokio::task::spawn_local(async move {
+      // TODO: do not unwrap and lock unsafe
+      while let Some(metric) = rx_p.lock().unwrap().recv().await {
         // TODO: do not unwrap
         let metric_encoder = encoder
           .encode_descriptor(
@@ -151,6 +155,8 @@ impl collector::Collector for DockerCollector {
         metric.metric.encode(metric_encoder).unwrap();
       }
     });
+
+    self.collect(docker, (tx, rx));
 
     Ok(())
   }
