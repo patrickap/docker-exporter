@@ -137,10 +137,31 @@ impl collector::Collector for DockerCollector {
     // TODO: better way than rx_p here?
     let rx_p = Arc::clone(&rx);
 
-    // spawn local as DescriptorEncoder is not thread safe
-    tokio::task::spawn_local(async move {
+    // // spawn local as DescriptorEncoder is not thread safe
+    // tokio::task::spawn_local(async move {
+    //   // TODO: do not unwrap and lock unsafe
+    //   while let Some(metric) = rx_p.lock().unwrap().recv().await {
+    //     // TODO: do not unwrap
+    //     let metric_encoder = encoder
+    //       .encode_descriptor(
+    //         &metric.name,
+    //         &metric.help,
+    //         None,
+    //         metric.metric.metric_type(),
+    //       )
+    //       .unwrap();
+
+    //     // TODO: do not unwrap
+    //     metric.metric.encode(metric_encoder).unwrap();
+    //   }
+    // });
+
+    self.collect(docker, (tx, rx));
+
+    // TODO: block_in_place works but better get spawn_local above to work
+    tokio::task::block_in_place(move || {
       // TODO: do not unwrap and lock unsafe
-      while let Some(metric) = rx_p.lock().unwrap().recv().await {
+      while let Some(metric) = rx_p.lock().unwrap().blocking_recv() {
         // TODO: do not unwrap
         let metric_encoder = encoder
           .encode_descriptor(
@@ -155,8 +176,6 @@ impl collector::Collector for DockerCollector {
         metric.metric.encode(metric_encoder).unwrap();
       }
     });
-
-    self.collect(docker, (tx, rx));
 
     Ok(())
   }
