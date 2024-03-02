@@ -12,7 +12,6 @@ use crate::config::{registry, route, server};
 #[tokio::main]
 async fn main() -> io::Result<()> {
   let mut registry = Registry::with_prefix(registry::PREFIX);
-  // TODO: do not unwrap, use http socket
   registry.register_collector(Box::new(DockerCollector::new()));
 
   let listener = TcpListener::bind(server::ADDRESS).await?;

@@ -76,18 +76,18 @@ impl Collector<Docker> for DockerCollector {
         })]);
 
         // TODO: add missing metrics
+        // if running {...}
 
         future::join_all(metrics).await
       }));
     }
-    let result = future::join_all(tasks)
+
+    future::join_all(tasks)
       .await
       .into_iter()
       .map(|r| r.unwrap_or_default())
       .flatten()
-      .collect();
-
-    result
+      .collect()
   }
 }
 
