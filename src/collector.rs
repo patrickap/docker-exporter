@@ -1,12 +1,12 @@
 use bollard::{container, Docker};
-use futures::{future, StreamExt, TryFutureExt};
+use futures::{future, StreamExt};
 use prometheus_client::{
   collector, encoding,
   metrics::{family, gauge},
   registry,
 };
-use std::sync::{Arc, Mutex};
-use tokio::{sync::mpsc, task};
+use std::sync::Arc;
+use tokio::{runtime::Handle, task};
 
 pub trait Collector<S> {
   type Metric;
@@ -119,27 +119,29 @@ impl DockerCollector {
 
 impl collector::Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
-    task::block_in_place(|| async {
-      // TODO: do not unwrap
-      let docker = Arc::new(Docker::connect_with_socket_defaults().unwrap());
-      let metrics = self.collect(docker).await;
+    task::block_in_place(|| {
+      Handle::current().block_on(async {
+        // TODO: do not unwrap
+        let docker = Arc::new(Docker::connect_with_socket_defaults().unwrap());
+        let metrics = self.collect(docker).await;
 
-      for metric in metrics {
-        if let Ok(metric) = metric {
-          // TODO: do not unwrap
-          let metric_encoder = encoder
-            .encode_descriptor(
-              &metric.name,
-              &metric.help,
-              None,
-              metric.metric.metric_type(),
-            )
-            .unwrap();
+        for metric in metrics {
+          if let Ok(metric) = metric {
+            // TODO: do not unwrap
+            let metric_encoder = encoder
+              .encode_descriptor(
+                &metric.name,
+                &metric.help,
+                None,
+                metric.metric.metric_type(),
+              )
+              .unwrap();
 
-          // TODO: do not unwrap
-          metric.metric.encode(metric_encoder).unwrap();
+            // TODO: do not unwrap
+            metric.metric.encode(metric_encoder).unwrap();
+          }
         }
-      }
+      });
     });
 
     Ok(())
