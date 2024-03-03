@@ -121,24 +121,26 @@ impl collector::Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
     task::block_in_place(|| {
       Handle::current().block_on(async {
-        // TODO: do not unwrap
-        let docker = Arc::new(Docker::connect_with_socket_defaults().unwrap());
+        let docker = match Docker::connect_with_socket_defaults() {
+          Ok(docker) => Arc::new(docker),
+          Err(err) => {
+            eprintln!("failed to connect to docker daemon: {:?}", err);
+            return;
+          }
+        };
+
         let metrics = self.collect(docker).await;
 
         for metric in metrics {
-          if let Ok(metric) = metric {
-            // TODO: do not unwrap
-            let metric_encoder = encoder
-              .encode_descriptor(
-                &metric.name,
-                &metric.help,
-                None,
-                metric.metric.metric_type(),
-              )
-              .unwrap();
-
-            // TODO: do not unwrap
-            metric.metric.encode(metric_encoder).unwrap();
+          if let Ok(DockerMetric { name, help, metric }) = metric {
+            encoder
+              .encode_descriptor(&name, &help, None, metric.metric_type())
+              .and_then(|encoder| metric.encode(encoder))
+              .map_err(|err| {
+                eprintln!("failed to encode metrics: {:?}", err);
+                err
+              })
+              .unwrap_or_default()
           }
         }
       });
