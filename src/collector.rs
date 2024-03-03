@@ -72,32 +72,22 @@ impl Collector<Docker> for DockerCollector {
             .unwrap(),
         );
 
-        let mut tasks = Vec::new();
+        let metrics: Vec<_> = Vec::from([
+          Self::new_state_metric,
+          Self::new_cpu_metric,
+          Self::new_memory_metric,
+          Self::new_io_metric,
+          Self::new_network_metric,
+        ])
+        .into_iter()
+        .map(|metric| {
+          let name = Arc::clone(&name);
+          let stats = Arc::clone(&stats);
+          task::spawn(async move { metric(name, stats, running) })
+        })
+        .collect();
 
-        tasks.push(task::spawn(async move {
-          Self::new_state_metric(Arc::clone(&name), running)
-        }));
-
-        // TODO: add missing metrics
-        // if running {
-        //   tasks.push(task::spawn(async move {
-        //     Self::new_cpu_metric(Arc::clone(&name), Arc::clone(&stats))
-        //   }));
-
-        //   tasks.push(task::spawn(async move {
-        //     Self::new_memory_metric(Arc::clone(&name), Arc::clone(&stats))
-        //   }));
-
-        //   tasks.push(task::spawn(async move {
-        //     Self::new_io_metric(Arc::clone(&name), Arc::clone(&stats))
-        //   }));
-
-        //   tasks.push(task::spawn(async move {
-        //     Self::new_network_metric(Arc::clone(&name), Arc::clone(&stats))
-        //   }));
-        // }
-
-        future::join_all(tasks).await
+        future::join_all(metrics).await
       }));
     }
 
@@ -111,7 +101,11 @@ impl Collector<Docker> for DockerCollector {
 }
 
 impl DockerCollector {
-  pub fn new_state_metric(name: Arc<String>, running: bool) -> DockerMetric {
+  pub fn new_state_metric(
+    name: Arc<String>,
+    stats: Arc<container::Stats>,
+    running: bool,
+  ) -> DockerMetric {
     let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
     metric
       .get_or_create(&DockerMetricLabels {
@@ -126,13 +120,53 @@ impl DockerCollector {
     }
   }
 
-  pub fn new_cpu_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+  pub fn new_cpu_metric(
+    name: Arc<String>,
+    stats: Arc<container::Stats>,
+    running: bool,
+  ) -> DockerMetric {
+    DockerMetric {
+      name: String::from("todo"),
+      help: String::from("todo"),
+      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
+    }
+  }
 
-  pub fn new_memory_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+  pub fn new_memory_metric(
+    name: Arc<String>,
+    stats: Arc<container::Stats>,
+    running: bool,
+  ) -> DockerMetric {
+    DockerMetric {
+      name: String::from("todo"),
+      help: String::from("todo"),
+      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
+    }
+  }
 
-  pub fn new_io_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+  pub fn new_io_metric(
+    name: Arc<String>,
+    stats: Arc<container::Stats>,
+    running: bool,
+  ) -> DockerMetric {
+    DockerMetric {
+      name: String::from("todo"),
+      help: String::from("todo"),
+      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
+    }
+  }
 
-  pub fn new_network_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+  pub fn new_network_metric(
+    name: Arc<String>,
+    stats: Arc<container::Stats>,
+    running: bool,
+  ) -> DockerMetric {
+    DockerMetric {
+      name: String::from("todo"),
+      help: String::from("todo"),
+      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
+    }
+  }
 }
 
 impl collector::Collector for DockerCollector {
