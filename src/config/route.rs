@@ -8,7 +8,7 @@ pub async fn status() -> &'static str {
 
 pub async fn metrics(axum::Extension(registry): Extension<Arc<Registry>>) -> String {
   // TODO: do not unwrap
-  let mut encoded = String::new();
-  text::encode(&mut encoded, &registry).unwrap();
-  encoded
+  let mut buffer = String::new();
+  text::encode(&mut buffer, &registry).unwrap();
+  buffer
 }
