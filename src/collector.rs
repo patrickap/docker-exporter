@@ -71,14 +71,32 @@ impl Collector<Docker> for DockerCollector {
             .unwrap(),
         );
 
-        let metrics = Vec::from([task::spawn(async move {
-          DockerCollector::new_state_metric(running, Arc::clone(&name), Arc::clone(&stats))
-        })]);
+        let mut metric_tasks = Vec::new();
+
+        metric_tasks.push(task::spawn(async move {
+          Self::new_state_metric(Arc::clone(&name), running)
+        }));
 
         // TODO: add missing metrics
-        // if running {...}
+        // if running {
+        //   metric_tasks.push(task::spawn(async move {
+        //     Self::new_cpu_metric(Arc::clone(&name), Arc::clone(&stats))
+        //   }));
 
-        future::join_all(metrics).await
+        //   metric_tasks.push(task::spawn(async move {
+        //     Self::new_memory_metric(Arc::clone(&name), Arc::clone(&stats))
+        //   }));
+
+        //   metric_tasks.push(task::spawn(async move {
+        //     Self::new_io_metric(Arc::clone(&name), Arc::clone(&stats))
+        //   }));
+
+        //   metric_tasks.push(task::spawn(async move {
+        //     Self::new_network_metric(Arc::clone(&name), Arc::clone(&stats))
+        //   }));
+        // }
+
+        future::join_all(metric_tasks).await
       }));
     }
 
@@ -92,15 +110,10 @@ impl Collector<Docker> for DockerCollector {
 }
 
 impl DockerCollector {
-  pub fn new_state_metric(
-    running: bool,
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
-  ) -> DockerMetric {
+  pub fn new_state_metric(name: Arc<String>, running: bool) -> DockerMetric {
     let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
     metric
       .get_or_create(&DockerMetricLabels {
-        // TODO: is to_string here ok?
         container_name: name.to_string(),
       })
       .set(running as i64);
