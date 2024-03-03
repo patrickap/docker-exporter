@@ -46,6 +46,7 @@ impl Collector<Docker> for DockerCollector {
       .unwrap_or_default();
 
     let mut tasks = Vec::new();
+
     for container in containers {
       let docker = Arc::clone(&docker);
 
@@ -71,39 +72,39 @@ impl Collector<Docker> for DockerCollector {
             .unwrap(),
         );
 
-        let mut metric_tasks = Vec::new();
+        let mut tasks = Vec::new();
 
-        metric_tasks.push(task::spawn(async move {
+        tasks.push(task::spawn(async move {
           Self::new_state_metric(Arc::clone(&name), running)
         }));
 
         // TODO: add missing metrics
         // if running {
-        //   metric_tasks.push(task::spawn(async move {
+        //   tasks.push(task::spawn(async move {
         //     Self::new_cpu_metric(Arc::clone(&name), Arc::clone(&stats))
         //   }));
 
-        //   metric_tasks.push(task::spawn(async move {
+        //   tasks.push(task::spawn(async move {
         //     Self::new_memory_metric(Arc::clone(&name), Arc::clone(&stats))
         //   }));
 
-        //   metric_tasks.push(task::spawn(async move {
+        //   tasks.push(task::spawn(async move {
         //     Self::new_io_metric(Arc::clone(&name), Arc::clone(&stats))
         //   }));
 
-        //   metric_tasks.push(task::spawn(async move {
+        //   tasks.push(task::spawn(async move {
         //     Self::new_network_metric(Arc::clone(&name), Arc::clone(&stats))
         //   }));
         // }
 
-        future::join_all(metric_tasks).await
+        future::join_all(tasks).await
       }));
     }
 
     future::join_all(tasks)
       .await
       .into_iter()
-      .map(|r| r.unwrap_or_default())
+      .map(|metrics| metrics.unwrap_or_default())
       .flatten()
       .collect()
   }
@@ -124,9 +125,13 @@ impl DockerCollector {
       metric: Box::new(metric),
     }
   }
+
   pub fn new_cpu_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+
   pub fn new_memory_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+
   pub fn new_io_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
+
   pub fn new_network_metric(name: Arc<String>, stats: Arc<container::Stats>) {}
 }
 
