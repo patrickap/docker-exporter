@@ -18,6 +18,7 @@ pub trait Collector<S> {
 pub struct DockerMetric {
   name: String,
   help: String,
+  unit: Option<registry::Unit>,
   metric: Box<dyn registry::Metric>,
 }
 
@@ -116,6 +117,7 @@ impl DockerCollector {
     DockerMetric {
       name: String::from("container_running"),
       help: String::from("container running (1 = running, 0 = other)"),
+      unit: None,
       metric: Box::new(metric),
     }
   }
@@ -128,6 +130,7 @@ impl DockerCollector {
     DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
+      unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
     }
   }
@@ -140,6 +143,7 @@ impl DockerCollector {
     DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
+      unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
     }
   }
@@ -152,6 +156,7 @@ impl DockerCollector {
     DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
+      unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
     }
   }
@@ -164,6 +169,7 @@ impl DockerCollector {
     DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
+      unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
     }
   }
@@ -184,9 +190,15 @@ impl collector::Collector for DockerCollector {
         let metrics = self.collect(docker).await;
 
         for metric in metrics {
-          if let Ok(DockerMetric { name, help, metric }) = metric {
+          if let Ok(DockerMetric {
+            name,
+            help,
+            unit,
+            metric,
+          }) = metric
+          {
             encoder
-              .encode_descriptor(&name, &help, None, metric.metric_type())
+              .encode_descriptor(&name, &help, unit.as_ref(), metric.metric_type())
               .and_then(|encoder| metric.encode(encoder))
               .map_err(|err| {
                 eprintln!("failed to encode metrics: {:?}", err);
