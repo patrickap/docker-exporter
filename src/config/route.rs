@@ -1,4 +1,4 @@
-use axum::Extension;
+use axum::{http, Extension};
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
@@ -6,9 +6,12 @@ pub async fn status() -> &'static str {
   "ok"
 }
 
-pub async fn metrics(axum::Extension(registry): Extension<Arc<Registry>>) -> String {
-  // TODO: do not unwrap
+pub async fn metrics(
+  axum::Extension(registry): Extension<Arc<Registry>>,
+) -> Result<String, http::StatusCode> {
   let mut buffer = String::new();
-  text::encode(&mut buffer, &registry).unwrap();
-  buffer
+  match text::encode(&mut buffer, &registry) {
+    Ok(_) => Ok(buffer),
+    Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+  }
 }
