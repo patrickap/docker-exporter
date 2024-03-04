@@ -181,8 +181,8 @@ impl DockerCollector {
 impl collector::Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
     // Prometheus does not provide an async encode function
-    // This requires bridging from async to sync, resulting in a blocking operation
-    // To prevent blocking the async executor, the function block_in_place is used
+    // This requires bridging between async and sync, resulting in a blocking operation
+    // To prevent blocking the async executor, block_in_place is used
     task::block_in_place(|| {
       Handle::current().block_on(async {
         let docker = match Docker::connect_with_socket_defaults() {
