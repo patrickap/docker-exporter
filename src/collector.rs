@@ -108,8 +108,11 @@ impl DockerCollector {
     running: bool,
   ) -> DockerMetric {
     let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+
     metric
       .get_or_create(&DockerMetricLabels {
+        // Prometheus does not allow &str without a 'static lifetime
+        // As a result, the label is defined as String which makes a copy necessary
         container_name: name.as_deref().unwrap_or_default().into(),
       })
       .set(running as i64);
@@ -177,6 +180,9 @@ impl DockerCollector {
 
 impl collector::Collector for DockerCollector {
   fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
+    // Prometheus does not provide an async encode function
+    // This requires bridging from async to sync, resulting in a blocking operation
+    // To prevent blocking the async executor, the function block_in_place is used
     task::block_in_place(|| {
       Handle::current().block_on(async {
         let docker = match Docker::connect_with_socket_defaults() {
