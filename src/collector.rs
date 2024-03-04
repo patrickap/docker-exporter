@@ -111,8 +111,6 @@ impl DockerCollector {
 
     metric
       .get_or_create(&DockerMetricLabels {
-        // Prometheus does not allow &str without a 'static lifetime
-        // As a result, the label is defined as String which makes a copy necessary
         container_name: name.as_deref().unwrap_or_default().into(),
       })
       .set(running as i64);
