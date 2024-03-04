@@ -73,20 +73,18 @@ impl Collector<Docker> for DockerCollector {
             .unwrap(),
         );
 
-        let metrics: Vec<_> = Vec::from([
+        let metrics = [
           Self::new_state_metric,
           Self::new_cpu_metric,
           Self::new_memory_metric,
           Self::new_io_metric,
           Self::new_network_metric,
-        ])
-        .into_iter()
+        ]
         .map(|metric| {
           let name = Arc::clone(&name);
           let stats = Arc::clone(&stats);
           task::spawn(async move { metric(name, stats, running) })
-        })
-        .collect();
+        });
 
         future::join_all(metrics).await
       }));
