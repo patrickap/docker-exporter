@@ -144,20 +144,22 @@ impl DockerCollector {
   ) -> Option<DockerMetric> {
     match (name.as_ref(), stats.as_ref(), running) {
       (Some(name), Some(stats), true) => {
-        let cpu_total_delta =
+        let cpu_delta =
           stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
 
-        let cpu_system_delta = match (
+        let sys_cpu_delta = match (
           stats.cpu_stats.system_cpu_usage,
           stats.precpu_stats.system_cpu_usage,
         ) {
-          (Some(cpu), Some(precpu)) => cpu - precpu,
-          (Some(cpu), None) => cpu - 0,
-          (None, Some(precpu)) => 0 - precpu,
+          (Some(sys_cpu_usage), Some(sys_precpu_usage)) => sys_cpu_usage - sys_precpu_usage,
+          (Some(sys_cpu_usage), None) => sys_cpu_usage - 0,
+          (None, Some(sys_precpu_usage)) => 0 - sys_precpu_usage,
           _ => return None,
         };
 
-        let cpu_utilization = (cpu_total_delta as f64 / cpu_system_delta as f64) * 100.0;
+        let num_cpus = stats.cpu_stats.online_cpus.unwrap_or(1);
+
+        let cpu_utilization = (cpu_delta as f64 / sys_cpu_delta as f64) * num_cpus as f64 * 100.0;
 
         let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
