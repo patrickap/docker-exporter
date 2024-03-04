@@ -58,7 +58,7 @@ impl Collector<Docker> for DockerCollector {
             container
               .names
               .and_then(|names| Some(names.join(";")))
-              .and_then(|mut name| Some(name.drain(..1).collect())),
+              .and_then(|mut name| Some(name.drain(1..).collect())),
           );
 
           let stats = Arc::new(
@@ -142,12 +142,41 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     running: bool,
   ) -> Option<DockerMetric> {
-    Some(DockerMetric {
-      name: String::from("todo"),
-      help: String::from("todo"),
-      unit: None,
-      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
+    match (name.as_ref(), stats.as_ref(), running) {
+      (Some(name), Some(stats), true) => {
+        let cpu_total_delta =
+          stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+
+        let cpu_system_delta = match (
+          stats.cpu_stats.system_cpu_usage,
+          stats.precpu_stats.system_cpu_usage,
+        ) {
+          (Some(cpu), Some(precpu)) => cpu - precpu,
+          (Some(cpu), None) => cpu - 0,
+          (None, Some(precpu)) => 0 - precpu,
+          _ => return None,
+        };
+
+        let cpu_utilization = cpu_total_delta / cpu_system_delta * 100;
+
+        let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: name.into(),
+          })
+          .set(cpu_utilization as i64);
+
+        Some(DockerMetric {
+          name: String::from("cpu_utilization"),
+          help: String::from("cpu utilization in percent"),
+          unit: Some(registry::Unit::Other("percent".into())),
+          metric: Box::new(metric),
+        })
+      }
+
+      _ => None,
+    }
   }
 
   pub fn new_memory_metric(
