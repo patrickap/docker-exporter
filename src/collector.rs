@@ -1,5 +1,5 @@
 use bollard::{container, Docker};
-use futures::{future, StreamExt};
+use futures::{future, FutureExt, StreamExt};
 use prometheus_client::{
   collector, encoding,
   metrics::{family, gauge},
@@ -46,49 +46,51 @@ impl Collector<Docker> for DockerCollector {
       .await
       .unwrap_or_default();
 
-    let mut tasks = Vec::new();
+    let tasks: Vec<_> = containers
+      .into_iter()
+      .map(|container| {
+        let docker = Arc::clone(&docker);
 
-    for container in containers {
-      let docker = Arc::clone(&docker);
+        task::spawn(async move {
+          let running = container.state.eq(&Some(String::from("running")));
 
-      tasks.push(task::spawn(async move {
-        let running = container.state.eq(&Some(String::from("running")));
+          let name = Arc::new(
+            container
+              .names
+              .and_then(|names| Some(names.join(";")))
+              .map(|names| names[1..].to_string())
+              .unwrap_or_default(),
+          );
 
-        let name = Arc::new(
-          container
-            .names
-            .and_then(|names| Some(names.join(";")))
-            .map(|names| names[1..].to_string())
-            .unwrap_or_default(),
-        );
+          // TODO: do not unwrap
+          let stats = Arc::new(
+            docker
+              .stats(&container.id.unwrap_or_default(), Default::default())
+              .take(1)
+              .next()
+              .await
+              .unwrap()
+              .unwrap(),
+          );
 
-        // TODO: do not unwrap
-        let stats = Arc::new(
-          docker
-            .stats(&container.id.unwrap_or_default(), Default::default())
-            .take(1)
-            .next()
-            .await
-            .unwrap()
-            .unwrap(),
-        );
+          let metrics = [
+            Self::new_state_metric,
+            Self::new_cpu_metric,
+            Self::new_memory_metric,
+            Self::new_io_metric,
+            Self::new_network_metric,
+          ]
+          .map(|metric| {
+            let name = Arc::clone(&name);
+            let stats = Arc::clone(&stats);
 
-        let metrics = [
-          Self::new_state_metric,
-          Self::new_cpu_metric,
-          Self::new_memory_metric,
-          Self::new_io_metric,
-          Self::new_network_metric,
-        ]
-        .map(|metric| {
-          let name = Arc::clone(&name);
-          let stats = Arc::clone(&stats);
-          task::spawn(async move { metric(name, stats, running) })
-        });
+            task::spawn(async move { metric(name, stats, running) })
+          });
 
-        future::join_all(metrics).await
-      }));
-    }
+          future::join_all(metrics).await
+        })
+      })
+      .collect();
 
     future::join_all(tasks)
       .await
