@@ -12,7 +12,7 @@ pub trait Collector<S> {
   type Metric;
 
   fn new() -> Self;
-  async fn collect(&self, source: Arc<S>) -> Vec<Result<Self::Metric, task::JoinError>>;
+  async fn collect(&self, source: Arc<S>) -> Vec<Self::Metric>;
 }
 
 pub struct DockerMetric {
@@ -37,7 +37,7 @@ impl Collector<Docker> for DockerCollector {
     Self {}
   }
 
-  async fn collect(&self, docker: Arc<Docker>) -> Vec<Result<Self::Metric, task::JoinError>> {
+  async fn collect(&self, docker: Arc<Docker>) -> Vec<Self::Metric> {
     let containers = docker
       .list_containers(Some(container::ListContainersOptions::<&str> {
         all: true,
@@ -87,7 +87,14 @@ impl Collector<Docker> for DockerCollector {
             task::spawn(async move { metric(name, stats, running) })
           });
 
-          future::join_all(metrics).await
+          future::join_all(metrics)
+            .await
+            .into_iter()
+            .flat_map(|metric| match metric {
+              Ok(Some(metric)) => Some(metric),
+              _ => None,
+            })
+            .collect::<Vec<_>>()
         })
       })
       .collect();
@@ -95,8 +102,10 @@ impl Collector<Docker> for DockerCollector {
     future::join_all(tasks)
       .await
       .into_iter()
-      .map(|metrics| metrics.unwrap_or_default())
-      .flatten()
+      .flat_map(|task| match task {
+        Ok(task) => task,
+        _ => Default::default(),
+      })
       .collect()
   }
 }
@@ -106,20 +115,25 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> DockerMetric {
-    let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+  ) -> Option<DockerMetric> {
+    match (name.as_ref(), stats.as_ref()) {
+      (Some(name), Some(_)) => {
+        let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
-    metric
-      .get_or_create(&DockerMetricLabels {
-        container_name: name.as_deref().unwrap_or_default().into(),
-      })
-      .set(running as i64);
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: name.into(),
+          })
+          .set(running as i64);
 
-    DockerMetric {
-      name: String::from("container_running"),
-      help: String::from("container running (1 = running, 0 = other)"),
-      unit: None,
-      metric: Box::new(metric),
+        Some(DockerMetric {
+          name: String::from("container_running"),
+          help: String::from("container running (1 = running, 0 = other)"),
+          unit: None,
+          metric: Box::new(metric),
+        })
+      }
+      _ => None,
     }
   }
 
@@ -127,52 +141,52 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> DockerMetric {
-    DockerMetric {
+  ) -> Option<DockerMetric> {
+    Some(DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    }
+    })
   }
 
   pub fn new_memory_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> DockerMetric {
-    DockerMetric {
+  ) -> Option<DockerMetric> {
+    Some(DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    }
+    })
   }
 
   pub fn new_io_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> DockerMetric {
-    DockerMetric {
+  ) -> Option<DockerMetric> {
+    Some(DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    }
+    })
   }
 
   pub fn new_network_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> DockerMetric {
-    DockerMetric {
+  ) -> Option<DockerMetric> {
+    Some(DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    }
+    })
   }
 }
 
@@ -194,22 +208,21 @@ impl collector::Collector for DockerCollector {
         let metrics = self.collect(docker).await;
 
         for metric in metrics {
-          if let Ok(DockerMetric {
+          let DockerMetric {
             name,
             help,
             unit,
             metric,
-          }) = metric
-          {
-            encoder
-              .encode_descriptor(&name, &help, unit.as_ref(), metric.metric_type())
-              .and_then(|encoder| metric.encode(encoder))
-              .map_err(|err| {
-                eprintln!("failed to encode metrics: {:?}", err);
-                err
-              })
-              .unwrap_or_default()
-          }
+          } = metric;
+
+          encoder
+            .encode_descriptor(&name, &help, unit.as_ref(), metric.metric_type())
+            .and_then(|encoder| metric.encode(encoder))
+            .map_err(|err| {
+              eprintln!("failed to encode metrics: {:?}", err);
+              err
+            })
+            .unwrap_or_default()
         }
       });
     });
