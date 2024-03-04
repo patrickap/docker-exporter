@@ -110,8 +110,7 @@ impl DockerCollector {
     let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
     metric
       .get_or_create(&DockerMetricLabels {
-        // TODO: clone is bad idea...
-        container_name: name.as_ref().clone().unwrap(),
+        container_name: name.as_deref().unwrap_or_default().into(),
       })
       .set(running as i64);
 
