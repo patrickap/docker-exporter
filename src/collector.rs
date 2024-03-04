@@ -5,7 +5,7 @@ use prometheus_client::{
   metrics::{family, gauge},
   registry,
 };
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, Arc};
 use tokio::{runtime::Handle, task};
 
 pub trait Collector<S> {
@@ -122,7 +122,7 @@ impl DockerCollector {
 
         metric
           .get_or_create(&DockerMetricLabels {
-            container_name: name.into(),
+            container_name: name.to_string(),
           })
           .set(running as i64);
 
@@ -157,20 +157,20 @@ impl DockerCollector {
           _ => return None,
         };
 
-        let cpu_utilization = cpu_total_delta / cpu_system_delta * 100;
+        let cpu_utilization = (cpu_total_delta as f64 / cpu_system_delta as f64) * 100.0;
 
-        let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+        let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
         metric
           .get_or_create(&DockerMetricLabels {
-            container_name: name.into(),
+            container_name: name.to_string(),
           })
-          .set(cpu_utilization as i64);
+          .set(cpu_utilization);
 
         Some(DockerMetric {
-          name: String::from("cpu_utilization"),
+          name: String::from("cpu_utilization_percent"),
           help: String::from("cpu utilization in percent"),
-          unit: Some(registry::Unit::Other("percent".into())),
+          unit: None,
           metric: Box::new(metric),
         })
       }
