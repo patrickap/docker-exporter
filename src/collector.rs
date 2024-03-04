@@ -58,19 +58,19 @@ impl Collector<Docker> for DockerCollector {
             container
               .names
               .and_then(|names| Some(names.join(";")))
-              .map(|names| names[1..].to_string())
-              .unwrap_or_default(),
+              .and_then(|mut name| Some(name.drain(..1).collect())),
           );
 
-          // TODO: do not unwrap
           let stats = Arc::new(
             docker
               .stats(&container.id.unwrap_or_default(), Default::default())
               .take(1)
               .next()
-              .await
-              .unwrap()
-              .unwrap(),
+              .map(|stats| match stats {
+                Some(Ok(stats)) => Some(stats),
+                _ => None,
+              })
+              .await,
           );
 
           let metrics = [
@@ -103,14 +103,15 @@ impl Collector<Docker> for DockerCollector {
 
 impl DockerCollector {
   pub fn new_state_metric(
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
+    name: Arc<Option<String>>,
+    stats: Arc<Option<container::Stats>>,
     running: bool,
   ) -> DockerMetric {
     let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
     metric
       .get_or_create(&DockerMetricLabels {
-        container_name: name.to_string(),
+        // TODO: clone is bad idea...
+        container_name: name.as_ref().clone().unwrap(),
       })
       .set(running as i64);
 
@@ -123,8 +124,8 @@ impl DockerCollector {
   }
 
   pub fn new_cpu_metric(
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
+    name: Arc<Option<String>>,
+    stats: Arc<Option<container::Stats>>,
     running: bool,
   ) -> DockerMetric {
     DockerMetric {
@@ -136,8 +137,8 @@ impl DockerCollector {
   }
 
   pub fn new_memory_metric(
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
+    name: Arc<Option<String>>,
+    stats: Arc<Option<container::Stats>>,
     running: bool,
   ) -> DockerMetric {
     DockerMetric {
@@ -149,8 +150,8 @@ impl DockerCollector {
   }
 
   pub fn new_io_metric(
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
+    name: Arc<Option<String>>,
+    stats: Arc<Option<container::Stats>>,
     running: bool,
   ) -> DockerMetric {
     DockerMetric {
@@ -162,8 +163,8 @@ impl DockerCollector {
   }
 
   pub fn new_network_metric(
-    name: Arc<String>,
-    stats: Arc<container::Stats>,
+    name: Arc<Option<String>>,
+    stats: Arc<Option<container::Stats>>,
     running: bool,
   ) -> DockerMetric {
     DockerMetric {
