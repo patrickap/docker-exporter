@@ -63,7 +63,7 @@ impl Collector<Docker> for DockerCollector {
         let stats = Arc::new(
           docker
             .stats(
-              "",
+              container.id.as_deref().unwrap_or_default(),
               Some(container::StatsOptions {
                 stream: false,
                 ..Default::default()
