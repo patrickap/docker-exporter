@@ -204,7 +204,8 @@ impl DockerCollector {
           Some(memory_usage - memory_stats.cache)
         }
         (Some(memory_usage), Some(container::MemoryStatsStats::V2(_))) => {
-          // TODO: how to calculate the cache using v2 cgroups?
+          // In cgroup v2, Docker doesn't provide a cache property
+          // Unfortunately, there's no simple way to differentiate cache from memory usage
           Some(memory_usage - 0)
         }
         _ => None,
