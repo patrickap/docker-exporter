@@ -97,9 +97,10 @@ impl Collector<Docker> for DockerCollector {
             .await
             .into_iter()
             .flat_map(|metric| match metric {
-              Ok(Some(metric)) => Some(metric),
-              _ => None,
+              Ok(Some(metric)) => [metric],
+              _ => Default::default(),
             })
+            .flatten()
             .collect::<Vec<_>>()
         })
       })
@@ -121,7 +122,7 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> Option<DockerMetric> {
+  ) -> Option<Vec<DockerMetric>> {
     match (name.as_ref(), stats.as_ref()) {
       (Some(name), _) => {
         let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
@@ -132,12 +133,12 @@ impl DockerCollector {
           })
           .set(running as i64);
 
-        Some(DockerMetric {
+        Some(Vec::from([DockerMetric {
           name: String::from("container_running"),
           help: String::from("container running (1 = running, 0 = other)"),
           unit: None,
           metric: Box::new(metric),
-        })
+        }]))
       }
       _ => None,
     }
@@ -147,7 +148,7 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> Option<DockerMetric> {
+  ) -> Option<Vec<DockerMetric>> {
     match (name.as_ref(), stats.as_ref(), running) {
       (Some(name), Some(stats), true) => {
         let cpu_delta =
@@ -169,12 +170,12 @@ impl DockerCollector {
           })
           .set(cpu_utilization);
 
-        Some(DockerMetric {
+        Some(Vec::from([DockerMetric {
           name: String::from("cpu_utilization_percent"),
           help: String::from("cpu utilization in percent"),
           unit: None,
           metric: Box::new(metric),
-        })
+        }]))
       }
 
       _ => None,
@@ -185,39 +186,39 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> Option<DockerMetric> {
-    Some(DockerMetric {
+  ) -> Option<Vec<DockerMetric>> {
+    Some(Vec::from([DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
+    }]))
   }
 
   pub fn new_io_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> Option<DockerMetric> {
-    Some(DockerMetric {
+  ) -> Option<Vec<DockerMetric>> {
+    Some(Vec::from([DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
+    }]))
   }
 
   pub fn new_network_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     running: bool,
-  ) -> Option<DockerMetric> {
-    Some(DockerMetric {
+  ) -> Option<Vec<DockerMetric>> {
+    Some(Vec::from([DockerMetric {
       name: String::from("todo"),
       help: String::from("todo"),
       unit: None,
       metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
+    }]))
   }
 }
 
