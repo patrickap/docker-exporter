@@ -217,6 +217,7 @@ impl DockerCollector {
       let memory_total = stats.memory_stats.limit;
 
       match (memory_usage, memory_total) {
+        // TODO: this match does not correctly send all metrics, only the first match is send
         (Some(memory_usage), Some(memory_total)) => {
           let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
 
