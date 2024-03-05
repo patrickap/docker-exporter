@@ -1,5 +1,5 @@
-use bollard::{container, secret, Docker};
-use futures::{FutureExt, StreamExt, TryFutureExt};
+use bollard::{container, models, Docker};
+use futures::{FutureExt, StreamExt};
 use prometheus_client::{
   collector, encoding,
   metrics::{counter, family, gauge},
@@ -51,13 +51,27 @@ impl Collector<Docker> for DockerCollector {
       let tx = Arc::clone(&tx);
 
       task::spawn(async move {
-        let running = container.state.eq(&Some(String::from("running")));
-
         let name = Arc::new(
           container
             .names
             .and_then(|names| Some(names.join(";")))
             .and_then(|mut name| Some(name.drain(1..).collect())),
+        );
+
+        // TODO: load state and stats concurrently ...
+        let state = Arc::new(
+          docker
+            .inspect_container(
+              container.id.as_deref().unwrap_or_default(),
+              Some(container::InspectContainerOptions {
+                ..Default::default()
+              }),
+            )
+            .map(|inspect| match inspect {
+              Ok(inspect) => inspect.state,
+              _ => None,
+            })
+            .await,
         );
 
         let stats = Arc::new(
@@ -79,35 +93,37 @@ impl Collector<Docker> for DockerCollector {
         );
 
         task::spawn(Self::new_state_metric(
-          running,
           Arc::clone(&name),
+          Arc::clone(&state),
           Arc::clone(&tx),
         ));
 
-        if running {
-          task::spawn(Self::new_cpu_metric(
-            Arc::clone(&name),
-            Arc::clone(&stats),
-            Arc::clone(&tx),
-          ));
+        if let Some(state) = &*state {
+          if let Some(true) = state.running {
+            task::spawn(Self::new_cpu_metric(
+              Arc::clone(&name),
+              Arc::clone(&stats),
+              Arc::clone(&tx),
+            ));
 
-          task::spawn(Self::new_memory_metric(
-            Arc::clone(&name),
-            Arc::clone(&stats),
-            Arc::clone(&tx),
-          ));
+            task::spawn(Self::new_memory_metric(
+              Arc::clone(&name),
+              Arc::clone(&stats),
+              Arc::clone(&tx),
+            ));
 
-          task::spawn(Self::new_io_metric(
-            Arc::clone(&name),
-            Arc::clone(&stats),
-            Arc::clone(&tx),
-          ));
+            task::spawn(Self::new_io_metric(
+              Arc::clone(&name),
+              Arc::clone(&stats),
+              Arc::clone(&tx),
+            ));
 
-          task::spawn(Self::new_network_metric(
-            Arc::clone(&name),
-            Arc::clone(&stats),
-            Arc::clone(&tx),
-          ));
+            task::spawn(Self::new_network_metric(
+              Arc::clone(&name),
+              Arc::clone(&stats),
+              Arc::clone(&tx),
+            ));
+          }
         }
       });
     }
@@ -116,19 +132,19 @@ impl Collector<Docker> for DockerCollector {
 
 impl DockerCollector {
   pub async fn new_state_metric(
-    running: bool,
     name: Arc<Option<String>>,
+    state: Arc<Option<models::ContainerState>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    match &*name {
-      Some(name) => {
+    match (&*name, &*state) {
+      (Some(name), Some(state)) => {
         let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
         metric
           .get_or_create(&DockerMetricLabels {
             container_name: String::from(name),
           })
-          .set(running as i64);
+          .set(state.running.unwrap_or_default() as i64);
 
         task::spawn(async move {
           tx.send(DockerMetric {
