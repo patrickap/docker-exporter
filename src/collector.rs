@@ -51,91 +51,64 @@ impl Collector<Docker> for DockerCollector {
       let tx = Arc::clone(&tx);
 
       task::spawn(async move {
-        let name = container
-          .names
-          .and_then(|names| Some(names.join(";")))
-          .and_then(|mut name| Some(name.drain(1..).collect()));
+        let running = container.state.eq(&Some(String::from("running")));
 
-        let state = container.state;
+        let name = Arc::new(
+          container
+            .names
+            .and_then(|names| Some(names.join(";")))
+            .and_then(|mut name| Some(name.drain(1..).collect())),
+        );
 
-        let stats = docker
-          .stats(
-            container.id.as_deref().unwrap_or_default(),
-            Some(container::StatsOptions {
-              stream: false,
-              ..Default::default()
-            }),
-          )
-          .take(1)
-          .next()
-          .map(|stats| match stats {
-            Some(Ok(stats)) => Some(stats),
-            _ => None,
-          });
-
-        let health = docker
-          .inspect_container(
-            container.id.as_deref().unwrap_or_default(),
-            Some(container::InspectContainerOptions {
-              ..Default::default()
-            }),
-          )
-          .map_ok(|inspect| {
-            inspect
-              .state
-              .and_then(|state| state.health)
-              .and_then(|health| health.status)
-          })
-          .map(|health| match health {
-            Ok(Some(health)) => Some(health),
-            _ => None,
-          });
-
-        let (stats, health) = futures::join!(stats, health);
-
-        let name = Arc::new(name);
-        let state = Arc::new(state);
-        let stats = Arc::new(stats);
-        let health = Arc::new(health);
+        let stats = Arc::new(
+          docker
+            .stats(
+              "",
+              Some(container::StatsOptions {
+                stream: false,
+                ..Default::default()
+              }),
+            )
+            .take(1)
+            .next()
+            .map(|stats| match stats {
+              Some(Ok(stats)) => Some(stats),
+              _ => None,
+            })
+            .await,
+        );
 
         task::spawn(Self::new_state_metric(
+          running,
           Arc::clone(&name),
-          Arc::clone(&state),
           Arc::clone(&tx),
         ));
 
         task::spawn(Self::new_cpu_metric(
+          running,
           Arc::clone(&name),
-          Arc::clone(&state),
           Arc::clone(&stats),
           Arc::clone(&tx),
         ));
 
         task::spawn(Self::new_memory_metric(
+          running,
           Arc::clone(&name),
-          Arc::clone(&state),
           Arc::clone(&stats),
           Arc::clone(&tx),
         ));
 
         task::spawn(Self::new_io_metric(
+          running,
           Arc::clone(&name),
-          Arc::clone(&state),
           Arc::clone(&stats),
           Arc::clone(&tx),
         ));
 
         task::spawn(Self::new_network_metric(
+          running,
           Arc::clone(&name),
-          Arc::clone(&state),
           Arc::clone(&stats),
-          Arc::clone(&tx),
-        ));
-
-        task::spawn(Self::new_health_metric(
-          Arc::clone(&name),
-          Arc::clone(&state),
-          Arc::clone(&health),
           Arc::clone(&tx),
         ));
       });
@@ -145,16 +118,16 @@ impl Collector<Docker> for DockerCollector {
 
 impl DockerCollector {
   pub async fn new_state_metric(
+    running: bool,
     name: Arc<Option<String>>,
-    state: Arc<Option<String>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (Some(name), Some("running")) = (name.as_ref(), state.as_deref()) {
+    if let (true, Some(name)) = (running, name.as_ref()) {
       let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
       metric
         .get_or_create(&DockerMetricLabels {
-          container_name: name.to_string(),
+          container_name: String::from(name),
         })
         .set(1);
 
@@ -171,14 +144,12 @@ impl DockerCollector {
   }
 
   pub async fn new_cpu_metric(
+    running: bool,
     name: Arc<Option<String>>,
-    state: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (Some(name), Some("running"), Some(stats)) =
-      (name.as_ref(), state.as_deref(), stats.as_ref())
-    {
+    if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
       let cpu_delta =
         stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
 
@@ -202,7 +173,7 @@ impl DockerCollector {
 
         metric
           .get_or_create(&DockerMetricLabels {
-            container_name: name.to_string(),
+            container_name: String::from(name),
           })
           .set(cpu_utilization);
 
@@ -220,14 +191,12 @@ impl DockerCollector {
   }
 
   pub async fn new_memory_metric(
+    running: bool,
     name: Arc<Option<String>>,
-    state: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (Some(name), Some("running"), Some(stats)) =
-      (name.as_ref(), state.as_deref(), stats.as_ref())
-    {
+    if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
       let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
         (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
           Some(memory_usage - memory_stats.cache)
@@ -250,7 +219,7 @@ impl DockerCollector {
 
         metric
           .get_or_create(&DockerMetricLabels {
-            container_name: name.to_string(),
+            container_name: String::from(name),
           })
           .inc_by(memory_usage as f64);
 
@@ -273,7 +242,7 @@ impl DockerCollector {
 
         metric
           .get_or_create(&DockerMetricLabels {
-            container_name: name.to_string(),
+            container_name: String::from(name),
           })
           .inc_by(memory_total as f64);
 
@@ -297,7 +266,7 @@ impl DockerCollector {
 
         metric
           .get_or_create(&DockerMetricLabels {
-            container_name: name.to_string(),
+            container_name: String::from(name),
           })
           .set(memory_utilization);
 
@@ -315,8 +284,8 @@ impl DockerCollector {
   }
 
   pub async fn new_io_metric(
+    running: bool,
     name: Arc<Option<String>>,
-    state: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
@@ -332,26 +301,9 @@ impl DockerCollector {
   }
 
   pub async fn new_network_metric(
+    running: bool,
     name: Arc<Option<String>>,
-    state: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
-    tx: Arc<mpsc::Sender<DockerMetric>>,
-  ) {
-    task::spawn(async move {
-      tx.send(DockerMetric {
-        name: String::from("todo"),
-        help: String::from("todo"),
-        unit: None,
-        metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-      })
-      .await
-    });
-  }
-
-  pub async fn new_health_metric(
-    name: Arc<Option<String>>,
-    state: Arc<Option<String>>,
-    health: Arc<Option<secret::HealthStatusEnum>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
     task::spawn(async move {
