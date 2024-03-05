@@ -207,6 +207,10 @@ impl DockerCollector {
         (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
           Some(memory_usage - memory_stats.cache)
         }
+        (Some(memory_usage), Some(container::MemoryStatsStats::V2(_))) => {
+          // TODO: how to calculate the cache using v2 cgroups?
+          Some(memory_usage - 0)
+        }
         _ => None,
       };
 
