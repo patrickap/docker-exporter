@@ -130,6 +130,8 @@ impl Collector<Docker> for DockerCollector {
   }
 }
 
+// TODO: check wether metric should use gauge or counter
+
 impl DockerCollector {
   pub async fn new_state_metric(
     name: Arc<Option<String>>,
