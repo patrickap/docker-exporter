@@ -151,20 +151,17 @@ impl DockerCollector {
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
     if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
-      let cpu_delta =
-        stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
-
-      let system_cpu_delta = match (
+      if let (Some(system_cpu_usage), Some(system_precpu_usage)) = (
         stats.cpu_stats.system_cpu_usage,
         stats.precpu_stats.system_cpu_usage,
       ) {
-        (Some(cpu_usage), Some(precpu_usage)) => Some(cpu_usage - precpu_usage),
-        _ => None,
-      };
+        let cpu_delta =
+          stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
 
-      let number_cpus = stats.cpu_stats.online_cpus.unwrap_or(1);
+        let system_cpu_delta = system_cpu_usage - system_precpu_usage;
 
-      if let Some(system_cpu_delta) = system_cpu_delta {
+        let number_cpus = stats.cpu_stats.online_cpus.unwrap_or(1);
+
         let cpu_utilization =
           (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
 
@@ -184,7 +181,7 @@ impl DockerCollector {
         })
         .await
         .unwrap_or_default();
-      }
+      };
     }
   }
 
