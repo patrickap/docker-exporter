@@ -63,7 +63,13 @@ impl Collector<Docker> for DockerCollector {
 
           let stats = Arc::new(
             docker
-              .stats(&container.id.unwrap_or_default(), Default::default())
+              .stats(
+                &container.id.unwrap_or_default(),
+                Some(container::StatsOptions {
+                  stream: false,
+                  ..Default::default()
+                }),
+              )
               .take(1)
               .next()
               .map(|stats| match stats {
@@ -147,15 +153,8 @@ impl DockerCollector {
         let cpu_delta =
           stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
 
-        let sys_cpu_delta = match (
-          stats.cpu_stats.system_cpu_usage,
-          stats.precpu_stats.system_cpu_usage,
-        ) {
-          (Some(sys_cpu_usage), Some(sys_precpu_usage)) => sys_cpu_usage - sys_precpu_usage,
-          (Some(sys_cpu_usage), None) => sys_cpu_usage - 0,
-          (None, Some(sys_precpu_usage)) => 0 - sys_precpu_usage,
-          _ => return None,
-        };
+        let sys_cpu_delta =
+          stats.cpu_stats.system_cpu_usage? - stats.precpu_stats.system_cpu_usage?;
 
         let num_cpus = stats.cpu_stats.online_cpus.unwrap_or(1);
 
