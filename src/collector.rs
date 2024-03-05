@@ -1,5 +1,5 @@
 use bollard::{container, Docker};
-use futures::{future, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt};
 use prometheus_client::{
   collector, encoding,
   metrics::{counter, family, gauge},
@@ -15,6 +15,9 @@ pub trait Collector<S> {
   async fn collect(&self, source: Arc<S>, tx: Arc<mpsc::Sender<Self::Metric>>);
 }
 
+#[derive(Debug)]
+pub struct DockerCollector {}
+
 pub struct DockerMetric {
   name: String,
   help: String,
@@ -26,9 +29,6 @@ pub struct DockerMetric {
 pub struct DockerMetricLabels {
   container_name: String,
 }
-
-#[derive(Debug)]
-pub struct DockerCollector {}
 
 impl Collector<Docker> for DockerCollector {
   type Metric = DockerMetric;
