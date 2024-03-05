@@ -120,24 +120,27 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let Some(name) = name.as_ref() {
-      let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+    match &*name {
+      Some(name) => {
+        let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
-      metric
-        .get_or_create(&DockerMetricLabels {
-          container_name: String::from(name),
-        })
-        .set(running as i64);
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: String::from(name),
+          })
+          .set(running as i64);
 
-      task::spawn(async move {
-        tx.send(DockerMetric {
-          name: String::from("container_running"),
-          help: String::from("container running (1 = running, 0 = other)"),
-          unit: None,
-          metric: Box::new(metric),
-        })
-        .await
-      });
+        task::spawn(async move {
+          tx.send(DockerMetric {
+            name: String::from("container_running"),
+            help: String::from("container running (1 = running, 0 = other)"),
+            unit: None,
+            metric: Box::new(metric),
+          })
+          .await
+        });
+      }
+      _ => (),
     }
   }
 
@@ -146,44 +149,48 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (Some(name), Some(stats)) = (name.as_ref(), stats.as_ref()) {
-      let cpu_delta =
-        stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+    match (&*name, &*stats) {
+      (Some(name), Some(stats)) => {
+        let cpu_delta =
+          stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
 
-      let system_cpu_delta = match (
-        stats.cpu_stats.system_cpu_usage,
-        stats.precpu_stats.system_cpu_usage,
-      ) {
-        (Some(system_cpu_usage), Some(system_precpu_usage)) => {
-          Some(system_cpu_usage - system_precpu_usage)
+        let system_cpu_delta = match (
+          stats.cpu_stats.system_cpu_usage,
+          stats.precpu_stats.system_cpu_usage,
+        ) {
+          (Some(system_cpu_usage), Some(system_precpu_usage)) => {
+            Some(system_cpu_usage - system_precpu_usage)
+          }
+          _ => None,
+        };
+
+        let number_cpus = stats.cpu_stats.online_cpus.or(Some(1));
+
+        if let (Some(system_cpu_delta), Some(number_cpus)) = (system_cpu_delta, number_cpus) {
+          let cpu_utilization =
+            (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
+
+          let metric =
+            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .set(cpu_utilization);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("cpu_utilization_percent"),
+              help: String::from("cpu utilization in percent"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
         }
-        _ => None,
-      };
-
-      let number_cpus = stats.cpu_stats.online_cpus.or(Some(1));
-
-      if let (Some(system_cpu_delta), Some(number_cpus)) = (system_cpu_delta, number_cpus) {
-        let cpu_utilization =
-          (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
-
-        let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
-
-        metric
-          .get_or_create(&DockerMetricLabels {
-            container_name: String::from(name),
-          })
-          .set(cpu_utilization);
-
-        task::spawn(async move {
-          tx.send(DockerMetric {
-            name: String::from("cpu_utilization_percent"),
-            help: String::from("cpu utilization in percent"),
-            unit: None,
-            metric: Box::new(metric),
-          })
-          .await
-        });
       }
+      _ => (),
     }
   }
 
@@ -192,90 +199,94 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (Some(name), Some(stats)) = (name.as_ref(), stats.as_ref()) {
-      let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
-        (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
-          Some(memory_usage - memory_stats.cache)
+    match (&*name, &*stats) {
+      (Some(name), Some(stats)) => {
+        let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
+          (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
+            Some(memory_usage - memory_stats.cache)
+          }
+          (Some(memory_usage), Some(container::MemoryStatsStats::V2(_))) => {
+            // In cgroup v2, Docker doesn't provide a cache property
+            // Unfortunately, there's no simple way to differentiate cache from memory usage
+            Some(memory_usage - 0)
+          }
+          _ => None,
+        };
+
+        let memory_total = stats.memory_stats.limit;
+
+        if let Some(memory_usage) = memory_usage {
+          let tx = Arc::clone(&tx);
+
+          let metric =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .inc_by(memory_usage as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("memory_usage_bytes"),
+              help: String::from("memory usage in bytes"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
         }
-        (Some(memory_usage), Some(container::MemoryStatsStats::V2(_))) => {
-          // In cgroup v2, Docker doesn't provide a cache property
-          // Unfortunately, there's no simple way to differentiate cache from memory usage
-          Some(memory_usage - 0)
+
+        if let Some(memory_total) = memory_total {
+          let tx = Arc::clone(&tx);
+
+          let metric =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .inc_by(memory_total as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("memory_total_bytes"),
+              help: String::from("memory total in bytes"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
         }
-        _ => None,
-      };
 
-      let memory_total = stats.memory_stats.limit;
+        if let (Some(memory_usage), Some(memory_total)) = (memory_usage, memory_total) {
+          let tx = Arc::clone(&tx);
 
-      if let Some(memory_usage) = memory_usage {
-        let tx = Arc::clone(&tx);
+          let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
 
-        let metric =
-          family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let metric =
+            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
-        metric
-          .get_or_create(&DockerMetricLabels {
-            container_name: String::from(name),
-          })
-          .inc_by(memory_usage as f64);
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .set(memory_utilization);
 
-        task::spawn(async move {
-          tx.send(DockerMetric {
-            name: String::from("memory_usage_bytes"),
-            help: String::from("memory usage in bytes"),
-            unit: None,
-            metric: Box::new(metric),
-          })
-          .await
-        });
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("memory_utilization_percent"),
+              help: String::from("memory utilization in percent"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
       }
-
-      if let Some(memory_total) = memory_total {
-        let tx = Arc::clone(&tx);
-
-        let metric =
-          family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
-
-        metric
-          .get_or_create(&DockerMetricLabels {
-            container_name: String::from(name),
-          })
-          .inc_by(memory_total as f64);
-
-        task::spawn(async move {
-          tx.send(DockerMetric {
-            name: String::from("memory_total_bytes"),
-            help: String::from("memory total in bytes"),
-            unit: None,
-            metric: Box::new(metric),
-          })
-          .await
-        });
-      }
-
-      if let (Some(memory_usage), Some(memory_total)) = (memory_usage, memory_total) {
-        let tx = Arc::clone(&tx);
-
-        let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
-
-        let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
-
-        metric
-          .get_or_create(&DockerMetricLabels {
-            container_name: String::from(name),
-          })
-          .set(memory_utilization);
-
-        task::spawn(async move {
-          tx.send(DockerMetric {
-            name: String::from("memory_utilization_percent"),
-            help: String::from("memory utilization in percent"),
-            unit: None,
-            metric: Box::new(metric),
-          })
-          .await
-        });
-      }
+      _ => (),
     }
   }
 
