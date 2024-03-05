@@ -295,15 +295,10 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    task::spawn(async move {
-      tx.send(DockerMetric {
-        name: String::from("todo"),
-        help: String::from("todo"),
-        unit: None,
-        metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-      })
-      .await
-    });
+    match (&*name, &*stats) {
+      (Some(name), Some(stats)) => {}
+      _ => (),
+    }
   }
 
   pub async fn new_network_metric(
@@ -311,15 +306,65 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    task::spawn(async move {
-      tx.send(DockerMetric {
-        name: String::from("todo"),
-        help: String::from("todo"),
-        unit: None,
-        metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-      })
-      .await
-    });
+    match (&*name, &*stats) {
+      (Some(name), Some(stats)) => {
+        let (network_tx, network_rx) = match stats
+          .networks
+          .as_ref()
+          .and_then(|networks| networks.get("eth0"))
+        {
+          Some(networks) => (Some(networks.tx_bytes), Some(networks.rx_bytes)),
+          _ => (None, None),
+        };
+
+        if let Some(network_tx) = network_tx {
+          let tx = Arc::clone(&tx);
+
+          let metric =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .inc_by(network_tx as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("network_tx_bytes"),
+              help: String::from("network sent bytes"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
+
+        if let Some(network_rx) = network_rx {
+          let tx = Arc::clone(&tx);
+
+          let metric =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .inc_by(network_rx as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("network_rx_bytes"),
+              help: String::from("network received bytes"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
+      }
+      _ => (),
+    }
   }
 }
 
