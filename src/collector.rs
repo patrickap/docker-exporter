@@ -123,7 +123,7 @@ impl DockerCollector {
     running: bool,
   ) -> Option<DockerMetric> {
     match (name.as_ref(), stats.as_ref()) {
-      (Some(name), Some(_)) => {
+      (Some(name), _) => {
         let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
         metric
