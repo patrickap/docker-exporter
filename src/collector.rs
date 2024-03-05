@@ -84,33 +84,31 @@ impl Collector<Docker> for DockerCollector {
           Arc::clone(&tx),
         ));
 
-        task::spawn(Self::new_cpu_metric(
-          running,
-          Arc::clone(&name),
-          Arc::clone(&stats),
-          Arc::clone(&tx),
-        ));
+        if running {
+          task::spawn(Self::new_cpu_metric(
+            Arc::clone(&name),
+            Arc::clone(&stats),
+            Arc::clone(&tx),
+          ));
 
-        task::spawn(Self::new_memory_metric(
-          running,
-          Arc::clone(&name),
-          Arc::clone(&stats),
-          Arc::clone(&tx),
-        ));
+          task::spawn(Self::new_memory_metric(
+            Arc::clone(&name),
+            Arc::clone(&stats),
+            Arc::clone(&tx),
+          ));
 
-        task::spawn(Self::new_io_metric(
-          running,
-          Arc::clone(&name),
-          Arc::clone(&stats),
-          Arc::clone(&tx),
-        ));
+          task::spawn(Self::new_io_metric(
+            Arc::clone(&name),
+            Arc::clone(&stats),
+            Arc::clone(&tx),
+          ));
 
-        task::spawn(Self::new_network_metric(
-          running,
-          Arc::clone(&name),
-          Arc::clone(&stats),
-          Arc::clone(&tx),
-        ));
+          task::spawn(Self::new_network_metric(
+            Arc::clone(&name),
+            Arc::clone(&stats),
+            Arc::clone(&tx),
+          ));
+        }
       });
     }
   }
@@ -122,14 +120,14 @@ impl DockerCollector {
     name: Arc<Option<String>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (true, Some(name)) = (running, name.as_ref()) {
+    if let Some(name) = name.as_ref() {
       let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
       metric
         .get_or_create(&DockerMetricLabels {
           container_name: String::from(name),
         })
-        .set(1);
+        .set(running as i64);
 
       task::spawn(async move {
         tx.send(DockerMetric {
@@ -144,12 +142,11 @@ impl DockerCollector {
   }
 
   pub async fn new_cpu_metric(
-    running: bool,
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
+    if let (Some(name), Some(stats)) = (name.as_ref(), stats.as_ref()) {
       let cpu_delta =
         stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
 
@@ -191,12 +188,11 @@ impl DockerCollector {
   }
 
   pub async fn new_memory_metric(
-    running: bool,
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
+    if let (Some(name), Some(stats)) = (name.as_ref(), stats.as_ref()) {
       let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
         (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
           Some(memory_usage - memory_stats.cache)
@@ -284,7 +280,6 @@ impl DockerCollector {
   }
 
   pub async fn new_io_metric(
-    running: bool,
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
@@ -301,7 +296,6 @@ impl DockerCollector {
   }
 
   pub async fn new_network_metric(
-    running: bool,
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
