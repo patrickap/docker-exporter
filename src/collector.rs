@@ -167,32 +167,28 @@ impl DockerCollector {
 
       let number_cpus = stats.cpu_stats.online_cpus.or(Some(1));
 
-      match (cpu_delta, system_cpu_delta, number_cpus) {
-        (cpu_delta, Some(system_cpu_delta), Some(number_cpus)) => {
-          let cpu_utilization =
-            (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
+      if let (Some(system_cpu_delta), Some(number_cpus)) = (system_cpu_delta, number_cpus) {
+        let cpu_utilization =
+          (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
 
-          let metric =
-            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+        let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
-          metric
-            .get_or_create(&DockerMetricLabels {
-              container_name: name.to_string(),
-            })
-            .set(cpu_utilization);
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: name.to_string(),
+          })
+          .set(cpu_utilization);
 
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("cpu_utilization_percent"),
-              help: String::from("cpu utilization in percent"),
-              unit: None,
-              metric: Box::new(metric),
-            })
-            .await
-          });
-        }
-        _ => {}
-      };
+        task::spawn(async move {
+          tx.send(DockerMetric {
+            name: String::from("cpu_utilization_percent"),
+            help: String::from("cpu utilization in percent"),
+            unit: None,
+            metric: Box::new(metric),
+          })
+          .await
+        });
+      }
     }
   }
 
@@ -216,72 +212,75 @@ impl DockerCollector {
 
       let memory_total = stats.memory_stats.limit;
 
-      match (memory_usage, memory_total) {
-        // TODO: this match does not correctly send all metrics, only the first match is send
-        (Some(memory_usage), Some(memory_total)) => {
-          let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
+      if let Some(memory_usage) = memory_usage {
+        let tx = Arc::clone(&tx);
 
-          let metric =
-            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+        let metric =
+          family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
 
-          metric
-            .get_or_create(&DockerMetricLabels {
-              container_name: name.to_string(),
-            })
-            .set(memory_utilization);
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: name.to_string(),
+          })
+          .inc_by(memory_usage as f64);
 
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("memory_utilization_percent"),
-              help: String::from("memory utilization in percent"),
-              unit: None,
-              metric: Box::new(metric),
-            })
-            .await
-          });
-        }
-        (Some(memory_usage), _) => {
-          let metric =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+        task::spawn(async move {
+          tx.send(DockerMetric {
+            name: String::from("memory_usage_bytes"),
+            help: String::from("memory usage in bytes"),
+            unit: None,
+            metric: Box::new(metric),
+          })
+          .await
+        });
+      }
 
-          metric
-            .get_or_create(&DockerMetricLabels {
-              container_name: name.to_string(),
-            })
-            .inc_by(memory_usage as f64);
+      if let Some(memory_total) = memory_total {
+        let tx = Arc::clone(&tx);
 
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("memory_usage_bytes"),
-              help: String::from("memory usage in bytes"),
-              unit: None,
-              metric: Box::new(metric),
-            })
-            .await
-          });
-        }
-        (_, Some(memory_total)) => {
-          let metric =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+        let metric =
+          family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
 
-          metric
-            .get_or_create(&DockerMetricLabels {
-              container_name: name.to_string(),
-            })
-            .inc_by(memory_total as f64);
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: name.to_string(),
+          })
+          .inc_by(memory_total as f64);
 
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("memory_total_bytes"),
-              help: String::from("memory total in bytes"),
-              unit: None,
-              metric: Box::new(metric),
-            })
-            .await
-          });
-        }
-        _ => {}
-      };
+        task::spawn(async move {
+          tx.send(DockerMetric {
+            name: String::from("memory_total_bytes"),
+            help: String::from("memory total in bytes"),
+            unit: None,
+            metric: Box::new(metric),
+          })
+          .await
+        });
+      }
+
+      if let (Some(memory_usage), Some(memory_total)) = (memory_usage, memory_total) {
+        let tx = Arc::clone(&tx);
+
+        let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
+
+        let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+
+        metric
+          .get_or_create(&DockerMetricLabels {
+            container_name: name.to_string(),
+          })
+          .set(memory_utilization);
+
+        task::spawn(async move {
+          tx.send(DockerMetric {
+            name: String::from("memory_utilization_percent"),
+            help: String::from("memory utilization in percent"),
+            unit: None,
+            metric: Box::new(metric),
+          })
+          .await
+        });
+      }
     }
   }
 
