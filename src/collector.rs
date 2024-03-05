@@ -2,7 +2,7 @@ use bollard::{container, Docker};
 use futures::{future, FutureExt, StreamExt};
 use prometheus_client::{
   collector, encoding,
-  metrics::{family, gauge},
+  metrics::{counter, family, gauge},
   registry,
 };
 use std::sync::{atomic::AtomicU64, Arc};
@@ -133,14 +133,15 @@ impl DockerCollector {
         })
         .set(running as i64);
 
-      tx.send(DockerMetric {
-        name: String::from("container_running"),
-        help: String::from("container running (1 = running, 0 = other)"),
-        unit: None,
-        metric: Box::new(metric),
-      })
-      .await
-      .unwrap_or_default();
+      task::spawn(async move {
+        tx.send(DockerMetric {
+          name: String::from("container_running"),
+          help: String::from("container running (1 = running, 0 = other)"),
+          unit: None,
+          metric: Box::new(metric),
+        })
+        .await
+      });
     }
   }
 
@@ -173,14 +174,15 @@ impl DockerCollector {
           })
           .set(cpu_utilization);
 
-        tx.send(DockerMetric {
-          name: String::from("cpu_utilization_percent"),
-          help: String::from("cpu utilization in percent"),
-          unit: None,
-          metric: Box::new(metric),
-        })
-        .await
-        .unwrap_or_default();
+        task::spawn(async move {
+          tx.send(DockerMetric {
+            name: String::from("cpu_utilization_percent"),
+            help: String::from("cpu utilization in percent"),
+            unit: None,
+            metric: Box::new(metric),
+          })
+          .await
+        });
       };
     }
   }
@@ -191,14 +193,82 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    tx.send(DockerMetric {
-      name: String::from("todo"),
-      help: String::from("todo"),
-      unit: None,
-      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
-    .await
-    .unwrap_or_default();
+    if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
+      let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
+        (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
+          Some(memory_usage - memory_stats.cache)
+        }
+        _ => None,
+      };
+
+      let memory_total = stats.memory_stats.limit;
+
+      match (memory_usage, memory_total) {
+        (Some(memory_usage), Some(memory_total)) => {
+          let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
+
+          let metric =
+            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: name.to_string(),
+            })
+            .set(memory_utilization);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("memory_utilization_percent"),
+              help: String::from("memory utilization in percent"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
+        (Some(memory_usage), _) => {
+          let metric =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: name.to_string(),
+            })
+            .inc_by(memory_usage as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("memory_usage_bytes"),
+              help: String::from("memory usage in bytes"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
+        (_, Some(memory_total)) => {
+          let metric =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: name.to_string(),
+            })
+            .inc_by(memory_total as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("memory_total_bytes"),
+              help: String::from("memory total in bytes"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
+        _ => {}
+      };
+    }
   }
 
   pub async fn new_io_metric(
@@ -207,14 +277,15 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    tx.send(DockerMetric {
-      name: String::from("todo"),
-      help: String::from("todo"),
-      unit: None,
-      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
-    .await
-    .unwrap_or_default();
+    task::spawn(async move {
+      tx.send(DockerMetric {
+        name: String::from("todo"),
+        help: String::from("todo"),
+        unit: None,
+        metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
+      })
+      .await
+    });
   }
 
   pub async fn new_network_metric(
@@ -223,14 +294,15 @@ impl DockerCollector {
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
-    tx.send(DockerMetric {
-      name: String::from("todo"),
-      help: String::from("todo"),
-      unit: None,
-      metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
-    })
-    .await
-    .unwrap_or_default();
+    task::spawn(async move {
+      tx.send(DockerMetric {
+        name: String::from("todo"),
+        help: String::from("todo"),
+        unit: None,
+        metric: Box::new(family::Family::<DockerMetricLabels, gauge::Gauge>::default()),
+      })
+      .await
+    });
   }
 }
 
