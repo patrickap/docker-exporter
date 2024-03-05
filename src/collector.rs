@@ -152,37 +152,46 @@ impl DockerCollector {
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
     if let (true, Some(name), Some(stats)) = (running, name.as_ref(), stats.as_ref()) {
-      if let (Some(system_cpu_usage), Some(system_precpu_usage)) = (
+      let cpu_delta =
+        stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+
+      let system_cpu_delta = match (
         stats.cpu_stats.system_cpu_usage,
         stats.precpu_stats.system_cpu_usage,
       ) {
-        let cpu_delta =
-          stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+        (Some(system_cpu_usage), Some(system_precpu_usage)) => {
+          Some(system_cpu_usage - system_precpu_usage)
+        }
+        _ => None,
+      };
 
-        let system_cpu_delta = system_cpu_usage - system_precpu_usage;
+      let number_cpus = stats.cpu_stats.online_cpus.or(Some(1));
 
-        let number_cpus = stats.cpu_stats.online_cpus.unwrap_or(1);
+      match (cpu_delta, system_cpu_delta, number_cpus) {
+        (cpu_delta, Some(system_cpu_delta), Some(number_cpus)) => {
+          let cpu_utilization =
+            (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
 
-        let cpu_utilization =
-          (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
+          let metric =
+            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
-        let metric = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+          metric
+            .get_or_create(&DockerMetricLabels {
+              container_name: name.to_string(),
+            })
+            .set(cpu_utilization);
 
-        metric
-          .get_or_create(&DockerMetricLabels {
-            container_name: name.to_string(),
-          })
-          .set(cpu_utilization);
-
-        task::spawn(async move {
-          tx.send(DockerMetric {
-            name: String::from("cpu_utilization_percent"),
-            help: String::from("cpu utilization in percent"),
-            unit: None,
-            metric: Box::new(metric),
-          })
-          .await
-        });
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("cpu_utilization_percent"),
+              help: String::from("cpu utilization in percent"),
+              unit: None,
+              metric: Box::new(metric),
+            })
+            .await
+          });
+        }
+        _ => {}
       };
     }
   }
