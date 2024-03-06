@@ -1,5 +1,5 @@
 use bollard::{container, models, Docker};
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use prometheus_client::{
   collector, encoding,
   metrics::{
@@ -54,6 +54,8 @@ impl Collector<Docker> for DockerCollector {
       let tx = Arc::clone(&tx);
 
       task::spawn(async move {
+        let id = Arc::new(container.id);
+
         let name = Arc::new(
           container
             .names
@@ -61,39 +63,44 @@ impl Collector<Docker> for DockerCollector {
             .and_then(|mut name| Some(name.drain(1..).collect())),
         );
 
-        // TODO: load state and stats concurrently ...
-        let state = Arc::new(
-          docker
+        let _docker = Arc::clone(&docker);
+        let _id = Arc::clone(&id);
+        let state = task::spawn(async move {
+          _docker
             .inspect_container(
-              container.id.as_deref().unwrap_or_default(),
+              _id.as_deref().unwrap_or_default(),
               Some(container::InspectContainerOptions {
                 ..Default::default()
               }),
             )
-            .map(|inspect| match inspect {
-              Ok(inspect) => inspect.state,
-              _ => None,
-            })
-            .await,
-        );
+            .await
+        })
+        .map(|inspect| match inspect {
+          Ok(Ok(inspect)) => Arc::new(inspect.state),
+          _ => Arc::new(None),
+        });
 
-        let stats = Arc::new(
-          docker
+        let _docker = Arc::clone(&docker);
+        let _id = Arc::clone(&id);
+        let stats = task::spawn(async move {
+          _docker
             .stats(
-              container.id.as_deref().unwrap_or_default(),
+              _id.as_deref().unwrap_or_default(),
               Some(container::StatsOptions {
                 stream: false,
                 ..Default::default()
               }),
             )
             .take(1)
-            .next()
-            .map(|stats| match stats {
-              Some(Ok(stats)) => Some(stats),
-              _ => None,
-            })
-            .await,
-        );
+            .try_next()
+            .await
+        })
+        .map(|stats| match stats {
+          Ok(Ok(stats)) => Arc::new(stats),
+          _ => Arc::new(None),
+        });
+
+        let (state, stats) = tokio::join!(state, stats);
 
         task::spawn(Self::new_state_metric(
           Arc::clone(&name),
