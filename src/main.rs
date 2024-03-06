@@ -9,6 +9,8 @@ mod config;
 use crate::collector::{Collector, DockerCollector};
 use crate::config::{registry, route, server};
 
+// TODO: refactor imports
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
   let mut registry = Registry::with_prefix(registry::PREFIX);
