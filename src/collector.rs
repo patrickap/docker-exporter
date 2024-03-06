@@ -130,7 +130,7 @@ impl Collector<Docker> for DockerCollector {
   }
 }
 
-// TODO: check wether metric should use gauge or counter
+// TODO: i'm not sure if counter.inc_by is the correct method...
 
 impl DockerCollector {
   pub async fn new_state_metric(
@@ -140,9 +140,9 @@ impl DockerCollector {
   ) {
     match (&*name, &*state) {
       (Some(name), Some(state)) => {
-        let metric = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+        let gauge = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
 
-        metric
+        gauge
           .get_or_create(&DockerMetricLabels {
             container_name: String::from(name),
           })
@@ -153,7 +153,7 @@ impl DockerCollector {
             name: String::from("container_running"),
             help: String::from("container running (1 = running, 0 = other)"),
             unit: None,
-            metric: Box::new(metric),
+            metric: Box::new(gauge),
           })
           .await
         });
@@ -188,10 +188,9 @@ impl DockerCollector {
           let cpu_utilization =
             (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
 
-          let metric =
-            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+          let gauge = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
-          metric
+          gauge
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
@@ -202,7 +201,7 @@ impl DockerCollector {
               name: String::from("cpu_utilization_percent"),
               help: String::from("cpu utilization in percent"),
               unit: None,
-              metric: Box::new(metric),
+              metric: Box::new(gauge),
             })
             .await
           });
@@ -236,21 +235,20 @@ impl DockerCollector {
         if let Some(memory_usage) = memory_usage {
           let tx = Arc::clone(&tx);
 
-          let metric =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let gauge = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
-          metric
+          gauge
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
-            .inc_by(memory_usage as f64);
+            .set(memory_usage as f64);
 
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("memory_usage_bytes"),
               help: String::from("memory usage in bytes"),
               unit: None,
-              metric: Box::new(metric),
+              metric: Box::new(gauge),
             })
             .await
           });
@@ -259,10 +257,10 @@ impl DockerCollector {
         if let Some(memory_total) = memory_total {
           let tx = Arc::clone(&tx);
 
-          let metric =
+          let counter =
             family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
 
-          metric
+          counter
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
@@ -273,7 +271,7 @@ impl DockerCollector {
               name: String::from("memory_total_bytes"),
               help: String::from("memory total in bytes"),
               unit: None,
-              metric: Box::new(metric),
+              metric: Box::new(counter),
             })
             .await
           });
@@ -284,10 +282,9 @@ impl DockerCollector {
 
           let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
 
-          let metric =
-            family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+          let gauge = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
 
-          metric
+          gauge
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
@@ -298,7 +295,7 @@ impl DockerCollector {
               name: String::from("memory_utilization_percent"),
               help: String::from("memory utilization in percent"),
               unit: None,
-              metric: Box::new(metric),
+              metric: Box::new(gauge),
             })
             .await
           });
@@ -314,7 +311,9 @@ impl DockerCollector {
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
-      (Some(name), Some(stats)) => {}
+      (Some(name), Some(stats)) => {
+        // rx and tx is both counter metric type
+      }
       _ => (),
     }
   }
@@ -338,10 +337,10 @@ impl DockerCollector {
         if let Some(network_tx) = network_tx {
           let tx = Arc::clone(&tx);
 
-          let metric =
+          let counter =
             family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
 
-          metric
+          counter
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
@@ -352,7 +351,7 @@ impl DockerCollector {
               name: String::from("network_tx_bytes"),
               help: String::from("network sent bytes"),
               unit: None,
-              metric: Box::new(metric),
+              metric: Box::new(counter),
             })
             .await
           });
@@ -361,10 +360,10 @@ impl DockerCollector {
         if let Some(network_rx) = network_rx {
           let tx = Arc::clone(&tx);
 
-          let metric =
+          let counter =
             family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
 
-          metric
+          counter
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
@@ -375,7 +374,7 @@ impl DockerCollector {
               name: String::from("network_rx_bytes"),
               help: String::from("network received bytes"),
               unit: None,
-              metric: Box::new(metric),
+              metric: Box::new(counter),
             })
             .await
           });
