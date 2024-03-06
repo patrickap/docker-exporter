@@ -63,42 +63,48 @@ impl Collector<Docker> for DockerCollector {
             .and_then(|mut name| Some(name.drain(1..).collect())),
         );
 
-        let _docker = Arc::clone(&docker);
-        let _id = Arc::clone(&id);
-        let state = task::spawn(async move {
-          _docker
-            .inspect_container(
-              _id.as_deref().unwrap_or_default(),
-              Some(container::InspectContainerOptions {
-                ..Default::default()
-              }),
-            )
-            .await
-        })
-        .map(|inspect| match inspect {
-          Ok(Ok(inspect)) => Arc::new(inspect.state),
-          _ => Arc::new(None),
-        });
+        let state = {
+          let docker = Arc::clone(&docker);
+          let id = Arc::clone(&id);
 
-        let _docker = Arc::clone(&docker);
-        let _id = Arc::clone(&id);
-        let stats = task::spawn(async move {
-          _docker
-            .stats(
-              _id.as_deref().unwrap_or_default(),
-              Some(container::StatsOptions {
-                stream: false,
-                ..Default::default()
-              }),
-            )
-            .take(1)
-            .try_next()
-            .await
-        })
-        .map(|stats| match stats {
-          Ok(Ok(stats)) => Arc::new(stats),
-          _ => Arc::new(None),
-        });
+          task::spawn(async move {
+            docker
+              .inspect_container(
+                id.as_deref().unwrap_or_default(),
+                Some(container::InspectContainerOptions {
+                  ..Default::default()
+                }),
+              )
+              .await
+          })
+          .map(|inspect| match inspect {
+            Ok(Ok(inspect)) => Arc::new(inspect.state),
+            _ => Arc::new(None),
+          })
+        };
+
+        let stats = {
+          let docker = Arc::clone(&docker);
+          let id = Arc::clone(&id);
+
+          task::spawn(async move {
+            docker
+              .stats(
+                id.as_deref().unwrap_or_default(),
+                Some(container::StatsOptions {
+                  stream: false,
+                  ..Default::default()
+                }),
+              )
+              .take(1)
+              .try_next()
+              .await
+          })
+          .map(|stats| match stats {
+            Ok(Ok(stats)) => Arc::new(stats),
+            _ => Arc::new(None),
+          })
+        };
 
         let (state, stats) = tokio::join!(state, stats);
 
