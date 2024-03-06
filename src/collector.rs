@@ -327,7 +327,66 @@ impl DockerCollector {
   ) {
     match (&*name, &*stats) {
       (Some(name), Some(stats)) => {
-        // rx and tx is both counter metric type
+        let (io_tx, io_rx) = match stats.blkio_stats.io_service_bytes_recursive.as_ref() {
+          Some(io) => {
+            let (tx, rx) = io.iter().fold((0, 0), |acc, io| match io.op.as_str() {
+              "write" => (acc.0 + io.value, acc.1),
+              "read" => (acc.0, acc.1 + io.value),
+              _ => acc,
+            });
+
+            (Some(tx), Some(rx))
+          }
+          _ => (None, None),
+        };
+
+        if let Some(io_tx) = io_tx {
+          let tx = Arc::clone(&tx);
+
+          let counter =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          counter
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .inner()
+            .set(io_tx as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("io_tx_bytes"),
+              help: String::from("io read bytes"),
+              unit: None,
+              metric: Box::new(counter),
+            })
+            .await
+          });
+        }
+
+        if let Some(io_rx) = io_rx {
+          let tx = Arc::clone(&tx);
+
+          let counter =
+            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+
+          counter
+            .get_or_create(&DockerMetricLabels {
+              container_name: String::from(name),
+            })
+            .inner()
+            .set(io_rx as f64);
+
+          task::spawn(async move {
+            tx.send(DockerMetric {
+              name: String::from("io_rx_bytes"),
+              help: String::from("io write bytes"),
+              unit: None,
+              metric: Box::new(counter),
+            })
+            .await
+          });
+        }
       }
       _ => (),
     }
@@ -365,7 +424,7 @@ impl DockerCollector {
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("network_tx_bytes"),
-              help: String::from("network sent bytes"),
+              help: String::from("network send bytes"),
               unit: None,
               metric: Box::new(counter),
             })
@@ -389,7 +448,7 @@ impl DockerCollector {
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("network_rx_bytes"),
-              help: String::from("network received bytes"),
+              help: String::from("network receive bytes"),
               unit: None,
               metric: Box::new(counter),
             })
