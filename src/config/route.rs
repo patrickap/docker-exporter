@@ -12,6 +12,6 @@ pub async fn metrics(
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
     Ok(_) => Ok(buffer),
-    Err(_) => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
+    _ => Err(http::StatusCode::INTERNAL_SERVER_ERROR),
   }
 }
