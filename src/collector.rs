@@ -2,7 +2,10 @@ use bollard::{container, models, Docker};
 use futures::{FutureExt, StreamExt};
 use prometheus_client::{
   collector, encoding,
-  metrics::{counter, family, gauge},
+  metrics::{
+    counter, family,
+    gauge::{self, Atomic},
+  },
   registry,
 };
 use std::sync::{atomic::AtomicU64, Arc};
@@ -129,8 +132,6 @@ impl Collector<Docker> for DockerCollector {
     }
   }
 }
-
-// TODO: i'm not sure if counter.inc_by is the correct method...
 
 impl DockerCollector {
   pub async fn new_state_metric(
@@ -264,7 +265,8 @@ impl DockerCollector {
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
-            .inc_by(memory_total as f64);
+            .inner()
+            .set(memory_total as f64);
 
           task::spawn(async move {
             tx.send(DockerMetric {
@@ -344,7 +346,8 @@ impl DockerCollector {
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
-            .inc_by(network_tx as f64);
+            .inner()
+            .set(network_tx as f64);
 
           task::spawn(async move {
             tx.send(DockerMetric {
@@ -367,7 +370,8 @@ impl DockerCollector {
             .get_or_create(&DockerMetricLabels {
               container_name: String::from(name),
             })
-            .inc_by(network_rx as f64);
+            .inner()
+            .set(network_rx as f64);
 
           task::spawn(async move {
             tx.send(DockerMetric {
