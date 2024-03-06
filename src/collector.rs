@@ -283,7 +283,7 @@ impl DockerCollector {
 
           task::spawn(async move {
             tx.send(DockerMetric {
-              name: String::from("memory_total_bytes"),
+              name: String::from("memory_bytes"),
               help: String::from("memory total in bytes"),
               unit: None,
               metric: Box::new(counter),
@@ -356,7 +356,7 @@ impl DockerCollector {
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("io_tx_bytes"),
-              help: String::from("io read bytes"),
+              help: String::from("io read total in bytes"),
               unit: None,
               metric: Box::new(counter),
             })
@@ -380,7 +380,7 @@ impl DockerCollector {
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("io_rx_bytes"),
-              help: String::from("io write bytes"),
+              help: String::from("io written total in bytes"),
               unit: None,
               metric: Box::new(counter),
             })
@@ -424,7 +424,7 @@ impl DockerCollector {
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("network_tx_bytes"),
-              help: String::from("network send bytes"),
+              help: String::from("network sent total in bytes"),
               unit: None,
               metric: Box::new(counter),
             })
@@ -448,7 +448,7 @@ impl DockerCollector {
           task::spawn(async move {
             tx.send(DockerMetric {
               name: String::from("network_rx_bytes"),
-              help: String::from("network receive bytes"),
+              help: String::from("network received total in bytes"),
               unit: None,
               metric: Box::new(counter),
             })
