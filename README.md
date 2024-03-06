@@ -2,7 +2,7 @@
 
 A Prometheus metrics collector for Docker, similar to `node-exporter` but designed for containerized environments, offering a simpler alternative to `cadvisor` with lower resource consumption.
 
-### Available metrics
+## Available metrics
 
 - `docker_exporter_container_running_boolean`
 - `docker_exporter_cpu_utilization_percent`
