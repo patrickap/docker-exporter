@@ -16,7 +16,10 @@ ENV UID=$UID \
 COPY --from=builder /build/entrypoint.sh /usr/bin/entrypoint.sh
 COPY --from=builder /build/target/release/docker-exporter /usr/bin/docker-exporter
 
-RUN groupadd -r -g $GID dex \
+RUN apt-get update \
+    && apt-get install -y \
+    netcat-openbsd=1.219-1 \
+    && groupadd -r -g $GID dex \
     && useradd -r -M -s /bin/sh -u $UID -g dex dex \
     && chmod +x /usr/bin/entrypoint.sh
 
