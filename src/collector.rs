@@ -128,7 +128,7 @@ impl Collector<Docker> for DockerCollector {
               Arc::clone(&tx),
             ));
 
-            task::spawn(Self::new_io_metric(
+            task::spawn(Self::new_block_io_metric(
               Arc::clone(&name),
               Arc::clone(&stats),
               Arc::clone(&tx),
@@ -164,8 +164,8 @@ impl DockerCollector {
 
         task::spawn(async move {
           tx.send(DockerMetric {
-            name: String::from("container_running"),
-            help: String::from("container running (1 = running, 0 = other)"),
+            name: String::from("container_running_boolean"),
+            help: String::from("container running as boolean (1 = true, 0 = false)"),
             unit: None,
             metric: Box::new(gauge),
           })
@@ -320,14 +320,15 @@ impl DockerCollector {
     }
   }
 
-  pub async fn new_io_metric(
+  pub async fn new_block_io_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
     tx: Arc<mpsc::Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
       (Some(name), Some(stats)) => {
-        let (io_tx, io_rx) = match stats.blkio_stats.io_service_bytes_recursive.as_ref() {
+        let (block_io_tx, block_io_rx) = match stats.blkio_stats.io_service_bytes_recursive.as_ref()
+        {
           Some(io) => {
             let (tx, rx) = io.iter().fold((0, 0), |acc, io| match io.op.as_str() {
               "write" => (acc.0 + io.value, acc.1),
@@ -340,7 +341,7 @@ impl DockerCollector {
           _ => (None, None),
         };
 
-        if let Some(io_tx) = io_tx {
+        if let Some(block_io_tx) = block_io_tx {
           let tx = Arc::clone(&tx);
 
           let counter =
@@ -351,12 +352,12 @@ impl DockerCollector {
               container_name: String::from(name),
             })
             .inner()
-            .set(io_tx as f64);
+            .set(block_io_tx as f64);
 
           task::spawn(async move {
             tx.send(DockerMetric {
-              name: String::from("io_tx_bytes"),
-              help: String::from("io read total in bytes"),
+              name: String::from("block_io_tx_bytes"),
+              help: String::from("block io read total in bytes"),
               unit: None,
               metric: Box::new(counter),
             })
@@ -364,7 +365,7 @@ impl DockerCollector {
           });
         }
 
-        if let Some(io_rx) = io_rx {
+        if let Some(block_io_rx) = block_io_rx {
           let tx = Arc::clone(&tx);
 
           let counter =
@@ -375,12 +376,12 @@ impl DockerCollector {
               container_name: String::from(name),
             })
             .inner()
-            .set(io_rx as f64);
+            .set(block_io_rx as f64);
 
           task::spawn(async move {
             tx.send(DockerMetric {
-              name: String::from("io_rx_bytes"),
-              help: String::from("io written total in bytes"),
+              name: String::from("block_io_rx_bytes"),
+              help: String::from("block io written total in bytes"),
               unit: None,
               metric: Box::new(counter),
             })
