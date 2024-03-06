@@ -11,6 +11,7 @@ use crate::config::{registry, route, server};
 
 // TODO: refactor imports
 // TODO: create docker image
+// TODO: support default docker socket path and / or tcp
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
