@@ -1,6 +1,8 @@
-pub const SERVER_ADDRESS: &str = "0.0.0.0:9630";
+pub mod constants {
+  pub const SERVER_ADDRESS: &str = "0.0.0.0:9630";
+}
 
-pub mod route {
+pub mod routes {
   use axum::{http::StatusCode, Extension};
   use prometheus_client::{encoding::text, registry::Registry};
   use std::sync::Arc;

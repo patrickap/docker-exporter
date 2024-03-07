@@ -3,7 +3,7 @@ use bollard::{
     self, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, StatsOptions,
   },
   models::ContainerState,
-  Docker, API_DEFAULT_VERSION,
+  Docker,
 };
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use prometheus_client::{
@@ -25,6 +25,10 @@ use tokio::{
   runtime::Handle,
   sync::mpsc::{self, Sender},
   task,
+};
+
+use crate::config::docker::constants::{
+  DEFAULT_API_VERSION, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_SOCKET_PATH, DOCKER_HOST_ENV,
 };
 
 pub trait DefaultCollector<S> {
@@ -481,9 +485,17 @@ impl Collector for DockerCollector {
     // Nevertheless, to prevent blocking the async executor, block_in_place is utilized instead
     task::block_in_place(|| {
       Handle::current().block_on(async {
-        let docker_connection = match env::var("DOCKER_HOST") {
-          Ok(docker_host) => Docker::connect_with_http(&docker_host, 60, API_DEFAULT_VERSION),
-          _ => Docker::connect_with_socket("/var/run/docker.sock", 60, API_DEFAULT_VERSION),
+        let docker_connection = match env::var(DOCKER_HOST_ENV) {
+          Ok(docker_host) => Docker::connect_with_http(
+            &docker_host,
+            DEFAULT_CONNECTION_TIMEOUT,
+            DEFAULT_API_VERSION,
+          ),
+          _ => Docker::connect_with_socket(
+            DEFAULT_SOCKET_PATH,
+            DEFAULT_CONNECTION_TIMEOUT,
+            DEFAULT_API_VERSION,
+          ),
         };
 
         let docker = match docker_connection {

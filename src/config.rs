@@ -1,4 +1,3 @@
-pub mod registry;
-pub mod server;
-
-pub use server::route;
+pub mod axum;
+pub mod docker;
+pub mod prometheus;

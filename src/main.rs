@@ -7,7 +7,10 @@ mod collector;
 mod config;
 
 use crate::collector::{DefaultCollector, DockerCollector};
-use crate::config::{registry::REGISTRY_PREFIX, route, server::SERVER_ADDRESS};
+use crate::config::{
+  axum::{constants::SERVER_ADDRESS, routes},
+  prometheus::constants::REGISTRY_PREFIX,
+};
 
 // TODO: create docker image
 // TODO: tests
@@ -19,8 +22,8 @@ async fn main() -> Result<()> {
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
-    .route("/status", routing::get(route::status))
-    .route("/metrics", routing::get(route::metrics))
+    .route("/status", routing::get(routes::status))
+    .route("/metrics", routing::get(routes::metrics))
     .layer(Extension(Arc::new(registry)));
 
   println!("server listening on {}", listener.local_addr()?);
