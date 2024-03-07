@@ -1,21 +1,36 @@
-use bollard::{container, models, Docker};
+use bollard::{
+  container::{
+    self, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, StatsOptions,
+  },
+  models::ContainerState,
+  Docker,
+};
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use prometheus_client::{
-  collector, encoding,
+  collector::Collector,
+  encoding::{DescriptorEncoder, EncodeLabelSet},
   metrics::{
-    counter, family,
-    gauge::{self, Atomic},
+    counter::Counter,
+    family::Family,
+    gauge::{Atomic, Gauge},
   },
-  registry,
+  registry::{Metric, Unit},
 };
-use std::sync::{atomic::AtomicU64, Arc};
-use tokio::{runtime::Handle, sync::mpsc, task};
+use std::{
+  fmt::Error,
+  sync::{atomic::AtomicU64, Arc},
+};
+use tokio::{
+  runtime::Handle,
+  sync::mpsc::{self, Sender},
+  task,
+};
 
-pub trait Collector<S> {
+pub trait DefaultCollector<S> {
   type Metric;
 
   fn new() -> Self;
-  async fn collect(&self, source: Arc<S>, tx: Arc<mpsc::Sender<Self::Metric>>);
+  async fn collect(&self, source: Arc<S>, tx: Arc<Sender<Self::Metric>>);
 }
 
 #[derive(Debug)]
@@ -24,25 +39,25 @@ pub struct DockerCollector {}
 pub struct DockerMetric {
   name: String,
   help: String,
-  unit: Option<registry::Unit>,
-  metric: Box<dyn registry::Metric>,
+  unit: Option<Unit>,
+  metric: Box<dyn Metric>,
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq, encoding::EncodeLabelSet)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
 pub struct DockerMetricLabels {
   container_name: String,
 }
 
-impl Collector<Docker> for DockerCollector {
+impl DefaultCollector<Docker> for DockerCollector {
   type Metric = DockerMetric;
 
   fn new() -> Self {
     Self {}
   }
 
-  async fn collect(&self, docker: Arc<Docker>, tx: Arc<mpsc::Sender<Self::Metric>>) {
+  async fn collect(&self, docker: Arc<Docker>, tx: Arc<Sender<Self::Metric>>) {
     let containers = docker
-      .list_containers(Some(container::ListContainersOptions::<&str> {
+      .list_containers(Some(ListContainersOptions::<&str> {
         all: true,
         ..Default::default()
       }))
@@ -71,7 +86,7 @@ impl Collector<Docker> for DockerCollector {
             docker
               .inspect_container(
                 id.as_deref().unwrap_or_default(),
-                Some(container::InspectContainerOptions {
+                Some(InspectContainerOptions {
                   ..Default::default()
                 }),
               )
@@ -91,7 +106,7 @@ impl Collector<Docker> for DockerCollector {
             docker
               .stats(
                 id.as_deref().unwrap_or_default(),
-                Some(container::StatsOptions {
+                Some(StatsOptions {
                   stream: false,
                   ..Default::default()
                 }),
@@ -149,12 +164,12 @@ impl Collector<Docker> for DockerCollector {
 impl DockerCollector {
   pub async fn new_state_metric(
     name: Arc<Option<String>>,
-    state: Arc<Option<models::ContainerState>>,
-    tx: Arc<mpsc::Sender<DockerMetric>>,
+    state: Arc<Option<ContainerState>>,
+    tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*state) {
       (Some(name), Some(state)) => {
-        let gauge = family::Family::<DockerMetricLabels, gauge::Gauge>::default();
+        let gauge = Family::<DockerMetricLabels, Gauge>::default();
 
         gauge
           .get_or_create(&DockerMetricLabels {
@@ -179,7 +194,7 @@ impl DockerCollector {
   pub async fn new_cpu_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
-    tx: Arc<mpsc::Sender<DockerMetric>>,
+    tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
       (Some(name), Some(stats)) => {
@@ -202,7 +217,7 @@ impl DockerCollector {
           let cpu_utilization =
             (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
 
-          let gauge = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+          let gauge = Family::<DockerMetricLabels, Gauge<f64, AtomicU64>>::default();
 
           gauge
             .get_or_create(&DockerMetricLabels {
@@ -228,15 +243,15 @@ impl DockerCollector {
   pub async fn new_memory_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
-    tx: Arc<mpsc::Sender<DockerMetric>>,
+    tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
       (Some(name), Some(stats)) => {
         let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
-          (Some(memory_usage), Some(container::MemoryStatsStats::V1(memory_stats))) => {
+          (Some(memory_usage), Some(MemoryStatsStats::V1(memory_stats))) => {
             Some(memory_usage - memory_stats.cache)
           }
-          (Some(memory_usage), Some(container::MemoryStatsStats::V2(_))) => {
+          (Some(memory_usage), Some(MemoryStatsStats::V2(_))) => {
             // In cgroup v2, Docker doesn't provide a cache property
             // Unfortunately, there's no simple way to differentiate cache from memory usage
             Some(memory_usage - 0)
@@ -249,7 +264,7 @@ impl DockerCollector {
         if let Some(memory_usage) = memory_usage {
           let tx = Arc::clone(&tx);
 
-          let gauge = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+          let gauge = Family::<DockerMetricLabels, Gauge<f64, AtomicU64>>::default();
 
           gauge
             .get_or_create(&DockerMetricLabels {
@@ -271,8 +286,7 @@ impl DockerCollector {
         if let Some(memory_total) = memory_total {
           let tx = Arc::clone(&tx);
 
-          let counter =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
 
           counter
             .get_or_create(&DockerMetricLabels {
@@ -297,7 +311,7 @@ impl DockerCollector {
 
           let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
 
-          let gauge = family::Family::<DockerMetricLabels, gauge::Gauge<f64, AtomicU64>>::default();
+          let gauge = Family::<DockerMetricLabels, Gauge<f64, AtomicU64>>::default();
 
           gauge
             .get_or_create(&DockerMetricLabels {
@@ -323,7 +337,7 @@ impl DockerCollector {
   pub async fn new_block_io_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
-    tx: Arc<mpsc::Sender<DockerMetric>>,
+    tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
       (Some(name), Some(stats)) => {
@@ -344,8 +358,7 @@ impl DockerCollector {
         if let Some(block_io_tx) = block_io_tx {
           let tx = Arc::clone(&tx);
 
-          let counter =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
 
           counter
             .get_or_create(&DockerMetricLabels {
@@ -368,8 +381,7 @@ impl DockerCollector {
         if let Some(block_io_rx) = block_io_rx {
           let tx = Arc::clone(&tx);
 
-          let counter =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
 
           counter
             .get_or_create(&DockerMetricLabels {
@@ -396,7 +408,7 @@ impl DockerCollector {
   pub async fn new_network_metric(
     name: Arc<Option<String>>,
     stats: Arc<Option<container::Stats>>,
-    tx: Arc<mpsc::Sender<DockerMetric>>,
+    tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
       (Some(name), Some(stats)) => {
@@ -412,8 +424,7 @@ impl DockerCollector {
         if let Some(network_tx) = network_tx {
           let tx = Arc::clone(&tx);
 
-          let counter =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
 
           counter
             .get_or_create(&DockerMetricLabels {
@@ -436,8 +447,7 @@ impl DockerCollector {
         if let Some(network_rx) = network_rx {
           let tx = Arc::clone(&tx);
 
-          let counter =
-            family::Family::<DockerMetricLabels, counter::Counter<f64, AtomicU64>>::default();
+          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
 
           counter
             .get_or_create(&DockerMetricLabels {
@@ -462,8 +472,8 @@ impl DockerCollector {
   }
 }
 
-impl collector::Collector for DockerCollector {
-  fn encode(&self, mut encoder: encoding::DescriptorEncoder) -> Result<(), std::fmt::Error> {
+impl Collector for DockerCollector {
+  fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), Error> {
     // Prometheus does not provide an async encode function which requires bridging between async and sync
     // Unfortenately, task::spawn is not feasible as the encoder cannot be sent between threads safely
     // Local spawning via task::spawn_local is also not suitable as the function parameters would escape the method

@@ -1,3 +1,4 @@
 pub mod registry;
-pub mod route;
 pub mod server;
+
+pub use server::route;
