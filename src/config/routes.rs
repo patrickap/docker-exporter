@@ -45,6 +45,7 @@ mod tests {
     let metrics = metrics(Extension(Arc::new(registry))).await;
 
     assert_eq!(metrics.is_ok(), true);
+    assert_eq!(metrics, Ok(String::from("# EOF\n")));
   }
 
   #[tokio::test]
@@ -57,5 +58,6 @@ mod tests {
     let metrics = metrics(Extension(Arc::new(registry))).await;
 
     assert_eq!(metrics.is_err(), true);
+    assert_eq!(metrics, Err(StatusCode::INTERNAL_SERVER_ERROR));
   }
 }
