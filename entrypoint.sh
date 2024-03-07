@@ -11,4 +11,4 @@ if [ ! "${GID}" = "${default_gid}" ] && [ -n "${GID}" ]; then
   groupmod -o -g "${GID}" dex
 fi
 
-exec runuser -u dex -- "${@}"
+exec su-exec restic "${@}"
