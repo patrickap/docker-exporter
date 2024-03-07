@@ -1,6 +1,6 @@
 use bollard::{
   container::{
-    self, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, StatsOptions,
+    InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats, StatsOptions,
   },
   models::ContainerState,
   Docker,
@@ -199,7 +199,7 @@ impl DockerCollector {
 
   pub async fn new_cpu_metric(
     name: Arc<Option<String>>,
-    stats: Arc<Option<container::Stats>>,
+    stats: Arc<Option<Stats>>,
     tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
@@ -248,7 +248,7 @@ impl DockerCollector {
 
   pub async fn new_memory_metric(
     name: Arc<Option<String>>,
-    stats: Arc<Option<container::Stats>>,
+    stats: Arc<Option<Stats>>,
     tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
@@ -342,7 +342,7 @@ impl DockerCollector {
 
   pub async fn new_block_io_metric(
     name: Arc<Option<String>>,
-    stats: Arc<Option<container::Stats>>,
+    stats: Arc<Option<Stats>>,
     tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
@@ -413,7 +413,7 @@ impl DockerCollector {
 
   pub async fn new_network_metric(
     name: Arc<Option<String>>,
-    stats: Arc<Option<container::Stats>>,
+    stats: Arc<Option<Stats>>,
     tx: Arc<Sender<DockerMetric>>,
   ) {
     match (&*name, &*stats) {
