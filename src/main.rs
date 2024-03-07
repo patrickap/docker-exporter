@@ -8,8 +8,8 @@ mod config;
 
 use crate::collector::{DefaultCollector, DockerCollector};
 use crate::config::{
-  axum::{constants::SERVER_ADDRESS, routes},
-  prometheus::constants::REGISTRY_PREFIX,
+  constants::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS},
+  routes,
 };
 
 // TODO: create docker image
@@ -17,7 +17,7 @@ use crate::config::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let mut registry = Registry::with_prefix(REGISTRY_PREFIX);
+  let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
   registry.register_collector(Box::new(DockerCollector::new()));
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;

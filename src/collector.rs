@@ -27,8 +27,9 @@ use tokio::{
   task,
 };
 
-use crate::config::docker::constants::{
-  DEFAULT_API_VERSION, DEFAULT_CONNECTION_TIMEOUT, DEFAULT_SOCKET_PATH, DOCKER_HOST_ENV,
+use crate::config::constants::{
+  DEFAULT_DOCKER_API_VERSION, DEFAULT_DOCKER_CONNECTION_TIMEOUT, DEFAULT_DOCKER_SOCKET_PATH,
+  DOCKER_HOST_ENV,
 };
 
 pub trait DefaultCollector<S> {
@@ -488,13 +489,13 @@ impl Collector for DockerCollector {
         let docker_connection = match env::var(DOCKER_HOST_ENV) {
           Ok(docker_host) => Docker::connect_with_http(
             &docker_host,
-            DEFAULT_CONNECTION_TIMEOUT,
-            DEFAULT_API_VERSION,
+            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
+            DEFAULT_DOCKER_API_VERSION,
           ),
           _ => Docker::connect_with_socket(
-            DEFAULT_SOCKET_PATH,
-            DEFAULT_CONNECTION_TIMEOUT,
-            DEFAULT_API_VERSION,
+            DEFAULT_DOCKER_SOCKET_PATH,
+            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
+            DEFAULT_DOCKER_API_VERSION,
           ),
         };
 
