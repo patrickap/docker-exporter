@@ -38,20 +38,16 @@ mod tests {
   #[tokio::test]
   async fn it_returns_metrics_err() {
     #[derive(Debug)]
-    struct MockCollector {
-      result: Result<(), Error>,
-    }
+    struct MockCollector {}
 
     impl Collector for MockCollector {
       fn encode(&self, _: DescriptorEncoder) -> Result<(), Error> {
-        self.result
+        Err(Default::default())
       }
     }
 
     let mut registry = Registry::from(Default::default());
-    registry.register_collector(Box::new(MockCollector {
-      result: Err(Default::default()),
-    }));
+    registry.register_collector(Box::new(MockCollector {}));
 
     let metrics = metrics(Extension(Arc::new(registry))).await;
 
