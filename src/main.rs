@@ -7,17 +7,17 @@ mod collector;
 mod config;
 
 use crate::collector::{DefaultCollector, DockerCollector};
-use crate::config::{registry, route, server};
+use crate::config::{registry::REGISTRY_PREFIX, route, server::SERVER_ADDRESS};
 
 // TODO: create docker image
-// TODO: support default docker socket path and / or tcp
+// TODO: tests
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let mut registry = Registry::with_prefix(registry::PREFIX);
+  let mut registry = Registry::with_prefix(REGISTRY_PREFIX);
   registry.register_collector(Box::new(DockerCollector::new()));
 
-  let listener = TcpListener::bind(server::ADDRESS).await?;
+  let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(route::status))
     .route("/metrics", routing::get(route::metrics))

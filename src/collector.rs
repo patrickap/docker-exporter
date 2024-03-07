@@ -3,7 +3,7 @@ use bollard::{
     self, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, StatsOptions,
   },
   models::ContainerState,
-  Docker,
+  Docker, API_DEFAULT_VERSION,
 };
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use prometheus_client::{
@@ -17,6 +17,7 @@ use prometheus_client::{
   registry::{Metric, Unit},
 };
 use std::{
+  env,
   fmt::Error,
   sync::{atomic::AtomicU64, Arc},
 };
@@ -480,7 +481,12 @@ impl Collector for DockerCollector {
     // Nevertheless, to prevent blocking the async executor, block_in_place is utilized instead
     task::block_in_place(|| {
       Handle::current().block_on(async {
-        let docker = match Docker::connect_with_socket_defaults() {
+        let docker_connection = match env::var("DOCKER_HOST") {
+          Ok(docker_host) => Docker::connect_with_http(&docker_host, 60, API_DEFAULT_VERSION),
+          _ => Docker::connect_with_socket("/var/run/docker.sock", 60, API_DEFAULT_VERSION),
+        };
+
+        let docker = match docker_connection {
           Ok(docker) => Arc::new(docker),
           Err(err) => {
             eprintln!("failed to connect to docker daemon: {:?}", err);

@@ -1,1 +1,1 @@
-pub const PREFIX: &str = "docker_exporter";
+pub const REGISTRY_PREFIX: &str = "docker_exporter";
