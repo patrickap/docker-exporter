@@ -76,7 +76,6 @@ impl StatsExt for Stats {
       // In cgroup v2, Docker doesn't provide a cache property
       // Unfortunately, there's no simple way to differentiate cache from memory usage
       MemoryStatsStats::V2(_) => 0,
-      _ => 0,
     };
 
     Some(self.memory_stats.usage? - memory_cache)
