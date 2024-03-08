@@ -449,6 +449,7 @@ pub trait ContainerMetricCollector<S> {
   async fn collect(&self, source: Arc<S>, tx: Arc<Sender<Self::Metric>>);
 }
 
+#[derive(Debug)]
 pub struct DockerCollector {}
 
 impl ContainerMetricCollector<Docker> for DockerCollector {
@@ -561,5 +562,54 @@ impl ContainerMetricCollector<Docker> for DockerCollector {
         // }
       });
     }
+  }
+}
+
+impl Collector for DockerCollector {
+  fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), Error> {
+    // Prometheus does not provide an async encode function which requires bridging between async and sync
+    // Unfortenately, task::spawn is not feasible as the encoder cannot be sent between threads safely
+    // Local spawning via task::spawn_local is also not suitable as the function parameters would escape the method
+    // Nevertheless, to prevent blocking the async executor, block_in_place is utilized instead
+    task::block_in_place(|| {
+      Handle::current().block_on(async {
+        let docker_connection = match env::var(DOCKER_HOST_ENV) {
+          Ok(docker_host) => Docker::connect_with_http(
+            &docker_host,
+            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
+            DEFAULT_DOCKER_API_VERSION,
+          ),
+          _ => Docker::connect_with_socket(
+            DEFAULT_DOCKER_SOCKET_PATH,
+            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
+            DEFAULT_DOCKER_API_VERSION,
+          ),
+        };
+
+        let docker = match docker_connection {
+          Ok(docker) => Arc::new(docker),
+          Err(err) => {
+            eprintln!("failed to connect to docker daemon: {:?}", err);
+            return;
+          }
+        };
+
+        let (tx, mut rx) = mpsc::channel::<ContainerMetric<_>>(32);
+        self.collect(docker, Arc::new(tx)).await;
+
+        while let Some(ContainerMetric { name, help, metric }) = rx.recv().await {
+          encoder
+            .encode_descriptor(&name, &help, None, metric.metric_type())
+            .and_then(|encoder| metric.encode(encoder))
+            .map_err(|err| {
+              eprintln!("failed to encode metrics: {:?}", err);
+              err
+            })
+            .unwrap_or_default()
+        }
+      });
+    });
+
+    Ok(())
   }
 }
