@@ -8,7 +8,7 @@ use bollard::{
 use futures::{FutureExt, StreamExt, TryStreamExt};
 use prometheus_client::{
   collector::Collector,
-  encoding::{DescriptorEncoder, EncodeLabelSet},
+  encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric},
   metrics::{
     counter::Counter,
     family::Family,
@@ -32,30 +32,427 @@ use crate::config::constants::{
   DOCKER_HOST_ENV,
 };
 
-pub trait DefaultCollector<S> {
+struct ContainerInfo {
+  name: Option<String>,
+  state: Option<ContainerState>,
+  stats: Option<Stats>,
+}
+
+impl ContainerInfo {
+  pub fn running(&self) -> Option<bool> {
+    match self.state {
+      Some(state) => state.running,
+      _ => None,
+    }
+  }
+
+  pub fn cpu_delta(&self) -> Option<u64> {
+    match self.stats {
+      Some(stats) => {
+        Some(stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage)
+      }
+      _ => None,
+    }
+  }
+
+  pub fn cpu_delta_system(&self) -> Option<u64> {
+    match self.stats {
+      Some(stats) => {
+        match (
+          stats.cpu_stats.system_cpu_usage,
+          stats.precpu_stats.system_cpu_usage,
+        ) {
+          (Some(system_cpu_usage), Some(system_precpu_usage)) => {
+            Some(system_cpu_usage - system_precpu_usage)
+          }
+          _ => None,
+        }
+      }
+      _ => None,
+    }
+  }
+
+  pub fn cpu_count(&self) -> Option<u64> {
+    match self.stats {
+      Some(stats) => stats.cpu_stats.online_cpus.or(Some(1)),
+      _ => None,
+    }
+  }
+
+  pub fn cpu_utilization(&self) -> Option<f64> {
+    match (self.cpu_delta(), self.cpu_delta_system(), self.cpu_count()) {
+      (Some(cpu_delta), Some(cpu_delta_system), Some(cpu_count)) => {
+        Some((cpu_delta as f64 / cpu_delta_system as f64) * cpu_count as f64 * 100.0)
+      }
+      _ => None,
+    }
+  }
+
+  pub fn memory_usage(&self) -> Option<u64> {
+    match self.stats {
+      Some(stats) => {
+        match (stats.memory_stats.usage, stats.memory_stats.stats) {
+          (Some(memory_usage), Some(MemoryStatsStats::V1(memory_stats))) => {
+            Some(memory_usage - memory_stats.cache)
+          }
+          (Some(memory_usage), Some(MemoryStatsStats::V2(_))) => {
+            // In cgroup v2, Docker doesn't provide a cache property
+            // Unfortunately, there's no simple way to differentiate cache from memory usage
+            Some(memory_usage - 0)
+          }
+          _ => None,
+        }
+      }
+      _ => None,
+    }
+  }
+
+  pub fn memory_total(&self) -> Option<u64> {
+    match self.stats {
+      Some(stats) => stats.memory_stats.limit,
+      _ => None,
+    }
+  }
+
+  pub fn memory_utilization(&self) -> Option<f64> {
+    match (self.memory_usage(), self.memory_total()) {
+      (Some(memory_usage), Some(memory_total)) => {
+        Some((memory_usage as f64 / memory_total as f64) * 100.0)
+      }
+      _ => None,
+    }
+  }
+
+  pub fn block_io_total(&self) -> (Option<u64>, Option<u64>) {
+    match self.stats {
+      Some(stats) => match stats.blkio_stats.io_service_bytes_recursive {
+        Some(io) => {
+          let (tx, rx) = io.iter().fold((0, 0), |acc, io| match io.op.as_str() {
+            "write" => (acc.0 + io.value, acc.1),
+            "read" => (acc.0, acc.1 + io.value),
+            _ => acc,
+          });
+
+          (Some(tx), Some(rx))
+        }
+        _ => (None, None),
+      },
+      _ => (None, None),
+    }
+  }
+
+  pub fn block_io_tx_total(&self) -> Option<u64> {
+    let (tx, _) = self.block_io_total();
+    tx
+  }
+
+  pub fn block_io_rx_total(&self) -> Option<u64> {
+    let (_, rx) = self.block_io_total();
+    rx
+  }
+
+  pub fn network_total(&self) -> (Option<u64>, Option<u64>) {
+    match self.stats {
+      Some(stats) => match stats.networks {
+        Some(networks) => match networks.get("eth0") {
+          Some(eth0) => (Some(eth0.tx_bytes), Some(eth0.rx_bytes)),
+          _ => (None, None),
+        },
+        _ => (None, None),
+      },
+      _ => (None, None),
+    }
+  }
+
+  pub fn network_tx_total(&self) -> Option<u64> {
+    let (tx, _) = self.network_total();
+    tx
+  }
+
+  pub fn network_rx_total(&self) -> Option<u64> {
+    let (_, rx) = self.network_total();
+    rx
+  }
+}
+
+pub struct ContainerMetric<M: Metric> {
+  name: String,
+  help: String,
+  metric: Family<ContainerMetricLabels, M>,
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct ContainerMetricLabels {
+  container_name: String,
+}
+
+pub trait ContainerMetricBuilder {
+  type MetricType: Metric;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>>;
+}
+
+pub struct ContainerRunningMetric {}
+
+impl ContainerMetricBuilder for ContainerRunningMetric {
+  type MetricType = Gauge;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.running()) {
+      (Some(name), Some(running)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .set(running as i64);
+
+        Some(ContainerMetric {
+          name: String::from("container_running_boolean"),
+          help: String::from("container running as boolean (1 = true, 0 = false)"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerCpuUtilizationMetric {}
+
+impl ContainerMetricBuilder for ContainerCpuUtilizationMetric {
+  type MetricType = Gauge<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.cpu_utilization()) {
+      (Some(name), Some(cpu_utilization)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .set(cpu_utilization);
+
+        Some(ContainerMetric {
+          name: String::from("cpu_utilization_percent"),
+          help: String::from("cpu utilization in percent"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerMemoryUsageMetric {}
+
+impl ContainerMetricBuilder for ContainerMemoryUsageMetric {
+  type MetricType = Gauge<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.memory_usage()) {
+      (Some(name), Some(memory_usage)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .set(memory_usage as f64);
+
+        Some(ContainerMetric {
+          name: String::from("memory_usage_bytes"),
+          help: String::from("memory usage in bytes"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerMemoryTotalMetric {}
+
+impl ContainerMetricBuilder for ContainerMemoryTotalMetric {
+  type MetricType = Counter<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.memory_total()) {
+      (Some(name), Some(memory_total)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .inner()
+          .set(memory_total as f64);
+
+        Some(ContainerMetric {
+          name: String::from("memory_bytes"),
+          help: String::from("memory total in bytes"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+// TODO: make ContainerMetricBuilder generic so one can instanciate like ContainerMetricBuilder::<Type>::new()
+
+pub struct ContainerMemoryUtilizationMetric {}
+
+impl ContainerMetricBuilder for ContainerMemoryUtilizationMetric {
+  type MetricType = Gauge<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.memory_utilization()) {
+      (Some(name), Some(memory_utilization)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .set(memory_utilization);
+
+        Some(ContainerMetric {
+          name: String::from("memory_utilization_percent"),
+          help: String::from("memory utilization in percent"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerBlockIoTxMetric {}
+
+impl ContainerMetricBuilder for ContainerBlockIoTxMetric {
+  type MetricType = Counter<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.block_io_tx_total()) {
+      (Some(name), Some(block_io_tx_total)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .inner()
+          .set(block_io_tx_total as f64);
+
+        Some(ContainerMetric {
+          name: String::from("block_io_tx_bytes"),
+          help: String::from("block io written total in bytes"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerBlockIoRxMetric {}
+
+impl ContainerMetricBuilder for ContainerBlockIoRxMetric {
+  type MetricType = Counter<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.block_io_rx_total()) {
+      (Some(name), Some(block_io_rx_total)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .inner()
+          .set(block_io_rx_total as f64);
+
+        Some(ContainerMetric {
+          name: String::from("block_io_rx_bytes"),
+          help: String::from("block io read total in bytes"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerNetworkTxMetric {}
+
+impl ContainerMetricBuilder for ContainerNetworkTxMetric {
+  type MetricType = Counter<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.network_tx_total()) {
+      (Some(name), Some(network_tx_total)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .inner()
+          .set(network_tx_total as f64);
+
+        Some(ContainerMetric {
+          name: String::from("network_tx_bytes"),
+          help: String::from("network sent total in bytes"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub struct ContainerNetworkRxMetric {}
+
+impl ContainerMetricBuilder for ContainerNetworkRxMetric {
+  type MetricType = Counter<f64, AtomicU64>;
+
+  fn new(info: Arc<ContainerInfo>) -> Option<ContainerMetric<Self::MetricType>> {
+    match (info.name, info.network_rx_total()) {
+      (Some(name), Some(network_rx_total)) => {
+        let metric = Family::<_, Self::MetricType>::default();
+
+        metric
+          .get_or_create(&ContainerMetricLabels {
+            container_name: name,
+          })
+          .inner()
+          .set(network_rx_total as f64);
+
+        Some(ContainerMetric {
+          name: String::from("network_rx_bytes"),
+          help: String::from("network received total in bytes"),
+          metric,
+        })
+      }
+      _ => None,
+    }
+  }
+}
+
+pub trait ContainerMetricCollector<S> {
   type Metric;
 
   fn new() -> Self;
   async fn collect(&self, source: Arc<S>, tx: Arc<Sender<Self::Metric>>);
 }
 
-#[derive(Debug)]
 pub struct DockerCollector {}
 
-pub struct DockerMetric {
-  name: String,
-  help: String,
-  unit: Option<Unit>,
-  metric: Box<dyn Metric>,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
-pub struct DockerMetricLabels {
-  container_name: String,
-}
-
-impl DefaultCollector<Docker> for DockerCollector {
-  type Metric = DockerMetric;
+impl ContainerMetricCollector<Docker> for DockerCollector {
+  type Metric = ContainerMetric<Box<dyn Metric>>;
 
   fn new() -> Self {
     Self {}
@@ -73,16 +470,13 @@ impl DefaultCollector<Docker> for DockerCollector {
     for container in containers {
       let docker = Arc::clone(&docker);
       let tx = Arc::clone(&tx);
+      let id = Arc::new(container.id);
 
       task::spawn(async move {
-        let id = Arc::new(container.id);
-
-        let name = Arc::new(
-          container
-            .names
-            .and_then(|names| Some(names.join(";")))
-            .and_then(|mut name| Some(name.drain(1..).collect())),
-        );
+        let name = container
+          .names
+          .and_then(|names| Some(names.join(";")))
+          .and_then(|mut name| Some(name.drain(1..).collect()));
 
         let state = {
           let docker = Arc::clone(&docker);
@@ -99,8 +493,8 @@ impl DefaultCollector<Docker> for DockerCollector {
               .await
           })
           .map(|inspect| match inspect {
-            Ok(Ok(inspect)) => Arc::new(inspect.state),
-            _ => Arc::new(None),
+            Ok(Ok(inspect)) => inspect.state,
+            _ => None,
           })
         };
 
@@ -122,413 +516,50 @@ impl DefaultCollector<Docker> for DockerCollector {
               .await
           })
           .map(|stats| match stats {
-            Ok(Ok(stats)) => Arc::new(stats),
-            _ => Arc::new(None),
+            Ok(Ok(stats)) => stats,
+            _ => None,
           })
         };
 
         let (state, stats) = tokio::join!(state, stats);
 
-        task::spawn(Self::new_state_metric(
-          Arc::clone(&name),
-          Arc::clone(&state),
-          Arc::clone(&tx),
-        ));
+        let info = Arc::new(ContainerInfo { name, state, stats });
 
-        if let Some(state) = &*state {
-          if let Some(true) = state.running {
-            task::spawn(Self::new_cpu_metric(
-              Arc::clone(&name),
-              Arc::clone(&stats),
-              Arc::clone(&tx),
-            ));
-
-            task::spawn(Self::new_memory_metric(
-              Arc::clone(&name),
-              Arc::clone(&stats),
-              Arc::clone(&tx),
-            ));
-
-            task::spawn(Self::new_block_io_metric(
-              Arc::clone(&name),
-              Arc::clone(&stats),
-              Arc::clone(&tx),
-            ));
-
-            task::spawn(Self::new_network_metric(
-              Arc::clone(&name),
-              Arc::clone(&stats),
-              Arc::clone(&tx),
-            ));
+        task::spawn(async {
+          if let Some(metric) = ContainerRunningMetric::new(Arc::clone(&info)) {
+            tx.send(metric).await?
           }
-        }
-      });
-    }
-  }
-}
-
-impl DockerCollector {
-  pub async fn new_state_metric(
-    name: Arc<Option<String>>,
-    state: Arc<Option<ContainerState>>,
-    tx: Arc<Sender<DockerMetric>>,
-  ) {
-    match (&*name, &*state) {
-      (Some(name), Some(state)) => {
-        let gauge = Family::<DockerMetricLabels, Gauge>::default();
-
-        gauge
-          .get_or_create(&DockerMetricLabels {
-            container_name: String::from(name),
-          })
-          .set(state.running.unwrap_or_default() as i64);
-
-        task::spawn(async move {
-          tx.send(DockerMetric {
-            name: String::from("container_running_boolean"),
-            help: String::from("container running as boolean (1 = true, 0 = false)"),
-            unit: None,
-            metric: Box::new(gauge),
-          })
-          .await
+          Ok(())
         });
-      }
-      _ => (),
-    }
-  }
 
-  pub async fn new_cpu_metric(
-    name: Arc<Option<String>>,
-    stats: Arc<Option<Stats>>,
-    tx: Arc<Sender<DockerMetric>>,
-  ) {
-    match (&*name, &*stats) {
-      (Some(name), Some(stats)) => {
-        let cpu_delta =
-          stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+        // if let Some(state) = &*state {
+        //   if let Some(true) = state.running {
+        //     task::spawn(Self::new_cpu_metric(
+        //       Arc::clone(&name),
+        //       Arc::clone(&stats),
+        //       Arc::clone(&tx),
+        //     ));
 
-        let system_cpu_delta = match (
-          stats.cpu_stats.system_cpu_usage,
-          stats.precpu_stats.system_cpu_usage,
-        ) {
-          (Some(system_cpu_usage), Some(system_precpu_usage)) => {
-            Some(system_cpu_usage - system_precpu_usage)
-          }
-          _ => None,
-        };
+        //     task::spawn(Self::new_memory_metric(
+        //       Arc::clone(&name),
+        //       Arc::clone(&stats),
+        //       Arc::clone(&tx),
+        //     ));
 
-        let number_cpus = stats.cpu_stats.online_cpus.or(Some(1));
+        //     task::spawn(Self::new_block_io_metric(
+        //       Arc::clone(&name),
+        //       Arc::clone(&stats),
+        //       Arc::clone(&tx),
+        //     ));
 
-        if let (Some(system_cpu_delta), Some(number_cpus)) = (system_cpu_delta, number_cpus) {
-          let cpu_utilization =
-            (cpu_delta as f64 / system_cpu_delta as f64) * number_cpus as f64 * 100.0;
-
-          let gauge = Family::<DockerMetricLabels, Gauge<f64, AtomicU64>>::default();
-
-          gauge
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .set(cpu_utilization);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("cpu_utilization_percent"),
-              help: String::from("cpu utilization in percent"),
-              unit: None,
-              metric: Box::new(gauge),
-            })
-            .await
-          });
-        }
-      }
-      _ => (),
-    }
-  }
-
-  pub async fn new_memory_metric(
-    name: Arc<Option<String>>,
-    stats: Arc<Option<Stats>>,
-    tx: Arc<Sender<DockerMetric>>,
-  ) {
-    match (&*name, &*stats) {
-      (Some(name), Some(stats)) => {
-        let memory_usage = match (stats.memory_stats.usage, stats.memory_stats.stats) {
-          (Some(memory_usage), Some(MemoryStatsStats::V1(memory_stats))) => {
-            Some(memory_usage - memory_stats.cache)
-          }
-          (Some(memory_usage), Some(MemoryStatsStats::V2(_))) => {
-            // In cgroup v2, Docker doesn't provide a cache property
-            // Unfortunately, there's no simple way to differentiate cache from memory usage
-            Some(memory_usage - 0)
-          }
-          _ => None,
-        };
-
-        let memory_total = stats.memory_stats.limit;
-
-        if let Some(memory_usage) = memory_usage {
-          let tx = Arc::clone(&tx);
-
-          let gauge = Family::<DockerMetricLabels, Gauge<f64, AtomicU64>>::default();
-
-          gauge
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .set(memory_usage as f64);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("memory_usage_bytes"),
-              help: String::from("memory usage in bytes"),
-              unit: None,
-              metric: Box::new(gauge),
-            })
-            .await
-          });
-        }
-
-        if let Some(memory_total) = memory_total {
-          let tx = Arc::clone(&tx);
-
-          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
-
-          counter
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .inner()
-            .set(memory_total as f64);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("memory_bytes"),
-              help: String::from("memory total in bytes"),
-              unit: None,
-              metric: Box::new(counter),
-            })
-            .await
-          });
-        }
-
-        if let (Some(memory_usage), Some(memory_total)) = (memory_usage, memory_total) {
-          let tx = Arc::clone(&tx);
-
-          let memory_utilization = (memory_usage as f64 / memory_total as f64) * 100.0;
-
-          let gauge = Family::<DockerMetricLabels, Gauge<f64, AtomicU64>>::default();
-
-          gauge
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .set(memory_utilization);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("memory_utilization_percent"),
-              help: String::from("memory utilization in percent"),
-              unit: None,
-              metric: Box::new(gauge),
-            })
-            .await
-          });
-        }
-      }
-      _ => (),
-    }
-  }
-
-  pub async fn new_block_io_metric(
-    name: Arc<Option<String>>,
-    stats: Arc<Option<Stats>>,
-    tx: Arc<Sender<DockerMetric>>,
-  ) {
-    match (&*name, &*stats) {
-      (Some(name), Some(stats)) => {
-        let (block_io_tx, block_io_rx) = match stats.blkio_stats.io_service_bytes_recursive.as_ref()
-        {
-          Some(io) => {
-            let (tx, rx) = io.iter().fold((0, 0), |acc, io| match io.op.as_str() {
-              "write" => (acc.0 + io.value, acc.1),
-              "read" => (acc.0, acc.1 + io.value),
-              _ => acc,
-            });
-
-            (Some(tx), Some(rx))
-          }
-          _ => (None, None),
-        };
-
-        if let Some(block_io_tx) = block_io_tx {
-          let tx = Arc::clone(&tx);
-
-          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
-
-          counter
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .inner()
-            .set(block_io_tx as f64);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("block_io_tx_bytes"),
-              help: String::from("block io read total in bytes"),
-              unit: None,
-              metric: Box::new(counter),
-            })
-            .await
-          });
-        }
-
-        if let Some(block_io_rx) = block_io_rx {
-          let tx = Arc::clone(&tx);
-
-          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
-
-          counter
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .inner()
-            .set(block_io_rx as f64);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("block_io_rx_bytes"),
-              help: String::from("block io written total in bytes"),
-              unit: None,
-              metric: Box::new(counter),
-            })
-            .await
-          });
-        }
-      }
-      _ => (),
-    }
-  }
-
-  pub async fn new_network_metric(
-    name: Arc<Option<String>>,
-    stats: Arc<Option<Stats>>,
-    tx: Arc<Sender<DockerMetric>>,
-  ) {
-    match (&*name, &*stats) {
-      (Some(name), Some(stats)) => {
-        let (network_tx, network_rx) = match stats
-          .networks
-          .as_ref()
-          .and_then(|networks| networks.get("eth0"))
-        {
-          Some(networks) => (Some(networks.tx_bytes), Some(networks.rx_bytes)),
-          _ => (None, None),
-        };
-
-        if let Some(network_tx) = network_tx {
-          let tx = Arc::clone(&tx);
-
-          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
-
-          counter
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .inner()
-            .set(network_tx as f64);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("network_tx_bytes"),
-              help: String::from("network sent total in bytes"),
-              unit: None,
-              metric: Box::new(counter),
-            })
-            .await
-          });
-        }
-
-        if let Some(network_rx) = network_rx {
-          let tx = Arc::clone(&tx);
-
-          let counter = Family::<DockerMetricLabels, Counter<f64, AtomicU64>>::default();
-
-          counter
-            .get_or_create(&DockerMetricLabels {
-              container_name: String::from(name),
-            })
-            .inner()
-            .set(network_rx as f64);
-
-          task::spawn(async move {
-            tx.send(DockerMetric {
-              name: String::from("network_rx_bytes"),
-              help: String::from("network received total in bytes"),
-              unit: None,
-              metric: Box::new(counter),
-            })
-            .await
-          });
-        }
-      }
-      _ => (),
-    }
-  }
-}
-
-impl Collector for DockerCollector {
-  fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), Error> {
-    // Prometheus does not provide an async encode function which requires bridging between async and sync
-    // Unfortenately, task::spawn is not feasible as the encoder cannot be sent between threads safely
-    // Local spawning via task::spawn_local is also not suitable as the function parameters would escape the method
-    // Nevertheless, to prevent blocking the async executor, block_in_place is utilized instead
-    task::block_in_place(|| {
-      Handle::current().block_on(async {
-        let docker_connection = match env::var(DOCKER_HOST_ENV) {
-          Ok(docker_host) => Docker::connect_with_http(
-            &docker_host,
-            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
-            DEFAULT_DOCKER_API_VERSION,
-          ),
-          _ => Docker::connect_with_socket(
-            DEFAULT_DOCKER_SOCKET_PATH,
-            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
-            DEFAULT_DOCKER_API_VERSION,
-          ),
-        };
-
-        let docker = match docker_connection {
-          Ok(docker) => Arc::new(docker),
-          Err(err) => {
-            eprintln!("failed to connect to docker daemon: {:?}", err);
-            return;
-          }
-        };
-
-        let (tx, mut rx) = mpsc::channel::<DockerMetric>(32);
-        self.collect(docker, Arc::new(tx)).await;
-
-        while let Some(DockerMetric {
-          name,
-          help,
-          unit,
-          metric,
-        }) = rx.recv().await
-        {
-          encoder
-            .encode_descriptor(&name, &help, unit.as_ref(), metric.metric_type())
-            .and_then(|encoder| metric.encode(encoder))
-            .map_err(|err| {
-              eprintln!("failed to encode metrics: {:?}", err);
-              err
-            })
-            .unwrap_or_default()
-        }
+        //     task::spawn(Self::new_network_metric(
+        //       Arc::clone(&name),
+        //       Arc::clone(&stats),
+        //       Arc::clone(&tx),
+        //     ));
+        //   }
+        // }
       });
-    });
-
-    Ok(())
+    }
   }
 }
