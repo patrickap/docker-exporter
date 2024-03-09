@@ -36,7 +36,113 @@ use crate::config::constants::{
   DOCKER_HOST_ENV, PROMETHEUS_REGISTRY_PREFIX,
 };
 
-pub trait StatsExt {
+// TODO: enum for metric names?
+// TODO: check again metrics calculation, names etc.
+// TODO: http header for open metrics text?
+// TODO: tests
+
+pub struct DockerCollector {
+  pub registry: Registry,
+  pub metrics: ContainerMetrics,
+}
+
+impl DockerCollector {
+  pub fn new() -> Self {
+    let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
+    let metrics = ContainerMetrics::default();
+
+    registry.register(
+      "state_running_boolean",
+      "state running as boolean (1 = true, 0 = false)",
+      Family::clone(&metrics.state_running_boolean),
+    );
+
+    registry.register(
+      "cpu_utilization_percent",
+      "cpu utilization in percent",
+      Family::clone(&metrics.cpu_utilization_percent),
+    );
+
+    registry.register(
+      "memory_usage_bytes",
+      "memory usage in bytes",
+      Family::clone(&metrics.memory_usage_bytes),
+    );
+
+    registry.register(
+      "memory_bytes_total",
+      "memory total in bytes",
+      Family::clone(&metrics.memory_bytes_total),
+    );
+
+    registry.register(
+      "memory_utilization_percent",
+      "memory utilization in percent",
+      Family::clone(&metrics.memory_utilization_percent),
+    );
+
+    registry.register(
+      "block_io_tx_bytes_total",
+      "block io written total in bytes",
+      Family::clone(&metrics.block_io_tx_bytes_total),
+    );
+
+    registry.register(
+      "block_io_rx_bytes_total",
+      "block io read total in bytes",
+      Family::clone(&metrics.block_io_rx_bytes_total),
+    );
+
+    registry.register(
+      "network_tx_bytes_total",
+      "network sent total in bytes",
+      Family::clone(&metrics.network_tx_bytes_total),
+    );
+
+    registry.register(
+      "network_rx_bytes_total",
+      "network received total in bytes",
+      Family::clone(&metrics.network_rx_bytes_total),
+    );
+
+    Self { registry, metrics }
+  }
+}
+
+pub struct ContainerMetrics {
+  pub state_running_boolean: Family<ContainerMetricLabels, Gauge<i64, AtomicI64>>,
+  pub cpu_utilization_percent: Family<ContainerMetricLabels, Gauge<f64, AtomicU64>>,
+  pub memory_usage_bytes: Family<ContainerMetricLabels, Gauge<f64, AtomicU64>>,
+  pub memory_bytes_total: Family<ContainerMetricLabels, Counter<f64, AtomicU64>>,
+  pub memory_utilization_percent: Family<ContainerMetricLabels, Gauge<f64, AtomicU64>>,
+  pub block_io_tx_bytes_total: Family<ContainerMetricLabels, Counter<f64, AtomicU64>>,
+  pub block_io_rx_bytes_total: Family<ContainerMetricLabels, Counter<f64, AtomicU64>>,
+  pub network_tx_bytes_total: Family<ContainerMetricLabels, Counter<f64, AtomicU64>>,
+  pub network_rx_bytes_total: Family<ContainerMetricLabels, Counter<f64, AtomicU64>>,
+}
+
+impl Default for ContainerMetrics {
+  fn default() -> Self {
+    Self {
+      state_running_boolean: Default::default(),
+      cpu_utilization_percent: Default::default(),
+      memory_usage_bytes: Default::default(),
+      memory_bytes_total: Default::default(),
+      memory_utilization_percent: Default::default(),
+      block_io_tx_bytes_total: Default::default(),
+      block_io_rx_bytes_total: Default::default(),
+      network_tx_bytes_total: Default::default(),
+      network_rx_bytes_total: Default::default(),
+    }
+  }
+}
+
+#[derive(Clone, Debug, EncodeLabelSet, Eq, Hash, PartialEq)]
+pub struct ContainerMetricLabels {
+  container_name: String,
+}
+
+pub trait ContainerStatsExt {
   fn cpu_delta(&self) -> Option<u64>;
   fn cpu_delta_system(&self) -> Option<u64>;
   fn cpu_count(&self) -> Option<u64>;
@@ -52,7 +158,7 @@ pub trait StatsExt {
   fn network_rx_total(&self) -> Option<u64>;
 }
 
-impl StatsExt for Stats {
+impl ContainerStatsExt for Stats {
   fn cpu_delta(&self) -> Option<u64> {
     Some(self.cpu_stats.cpu_usage.total_usage - self.precpu_stats.cpu_usage.total_usage)
   }
@@ -128,111 +234,5 @@ impl StatsExt for Stats {
   fn network_rx_total(&self) -> Option<u64> {
     let (_, rx) = self.network_total()?;
     Some(rx)
-  }
-}
-
-#[derive(Clone, Debug, EncodeLabelSet, Eq, Hash, PartialEq)]
-pub struct DockerMetricLabels {
-  container_name: String,
-}
-
-// TODO: enum for metric names?
-// TODO: check again metrics calculation, names etc.
-// TODO: http header for open metrics text?
-// TODO: tests
-
-pub struct DockerCollector {
-  pub registry: Registry,
-  pub metrics: DockerMetrics,
-}
-
-impl DockerCollector {
-  pub fn new() -> Self {
-    let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
-    let metrics = DockerMetrics::default();
-
-    registry.register(
-      "container_running_boolean",
-      "container running as boolean (1 = true, 0 = false)",
-      Family::clone(&metrics.container_running_boolean),
-    );
-
-    registry.register(
-      "cpu_utilization_percent",
-      "cpu utilization in percent",
-      Family::clone(&metrics.cpu_utilization_percent),
-    );
-
-    registry.register(
-      "memory_usage_bytes",
-      "memory usage in bytes",
-      Family::clone(&metrics.memory_usage_bytes),
-    );
-
-    registry.register(
-      "memory_bytes_total",
-      "memory total in bytes",
-      Family::clone(&metrics.memory_bytes_total),
-    );
-
-    registry.register(
-      "memory_utilization_percent",
-      "memory utilization in percent",
-      Family::clone(&metrics.memory_utilization_percent),
-    );
-
-    registry.register(
-      "block_io_tx_bytes_total",
-      "block io written total in bytes",
-      Family::clone(&metrics.block_io_tx_bytes_total),
-    );
-
-    registry.register(
-      "block_io_rx_bytes_total",
-      "block io read total in bytes",
-      Family::clone(&metrics.block_io_rx_bytes_total),
-    );
-
-    registry.register(
-      "network_tx_bytes_total",
-      "network sent total in bytes",
-      Family::clone(&metrics.network_tx_bytes_total),
-    );
-
-    registry.register(
-      "network_rx_bytes_total",
-      "network received total in bytes",
-      Family::clone(&metrics.network_rx_bytes_total),
-    );
-
-    Self { registry, metrics }
-  }
-}
-
-pub struct DockerMetrics {
-  pub container_running_boolean: Family<DockerMetricLabels, Gauge<i64, AtomicI64>>,
-  pub cpu_utilization_percent: Family<DockerMetricLabels, Gauge<f64, AtomicU64>>,
-  pub memory_usage_bytes: Family<DockerMetricLabels, Gauge<f64, AtomicU64>>,
-  pub memory_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
-  pub memory_utilization_percent: Family<DockerMetricLabels, Gauge<f64, AtomicU64>>,
-  pub block_io_tx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
-  pub block_io_rx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
-  pub network_tx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
-  pub network_rx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
-}
-
-impl Default for DockerMetrics {
-  fn default() -> Self {
-    Self {
-      container_running_boolean: Default::default(),
-      cpu_utilization_percent: Default::default(),
-      memory_usage_bytes: Default::default(),
-      memory_bytes_total: Default::default(),
-      memory_utilization_percent: Default::default(),
-      block_io_tx_bytes_total: Default::default(),
-      block_io_rx_bytes_total: Default::default(),
-      network_tx_bytes_total: Default::default(),
-      network_rx_bytes_total: Default::default(),
-    }
   }
 }
