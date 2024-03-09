@@ -42,8 +42,8 @@ use crate::config::constants::{
 // TODO: tests
 
 pub struct DockerCollector {
-  pub registry: Registry,
-  pub metrics: ContainerMetrics,
+  pub registry: Arc<Registry>,
+  pub metrics: Arc<ContainerMetrics>,
 }
 
 impl DockerCollector {
@@ -105,7 +105,163 @@ impl DockerCollector {
       Family::clone(&metrics.network_rx_bytes_total),
     );
 
-    Self { registry, metrics }
+    Self {
+      registry: Arc::new(registry),
+      metrics: Arc::new(metrics),
+    }
+  }
+
+  fn collect(
+    &self,
+    state: Arc<Option<ContainerState>>,
+    stats: Arc<Option<Stats>>,
+    labels: Arc<ContainerMetricLabels>,
+  ) {
+    {
+      let metrics = Arc::clone(&self.metrics);
+      let state = Arc::clone(&state);
+      let labels = Arc::clone(&labels);
+      task::spawn(async move {
+        let metric = Option::as_ref(&state).and_then(|s| s.running);
+        metrics
+          .state_running_boolean
+          .get_or_create(&labels)
+          .set(metric.unwrap_or_default() as i64);
+      });
+    }
+
+    let running = Option::as_ref(&state)
+      .and_then(|s| s.running)
+      .unwrap_or_default();
+
+    if running {
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.cpu_utilization());
+          if let Some(metric) = metric {
+            metrics
+              .cpu_utilization_percent
+              .get_or_create(&labels)
+              .set(metric);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.memory_usage());
+          if let Some(metric) = metric {
+            metrics
+              .memory_usage_bytes
+              .get_or_create(&labels)
+              .inner()
+              .set(metric as f64);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.memory_total());
+          if let Some(metric) = metric {
+            metrics
+              .memory_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(metric as f64);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.memory_utilization());
+          if let Some(metric) = metric {
+            metrics
+              .memory_utilization_percent
+              .get_or_create(&labels)
+              .inner()
+              .set(metric);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.block_io_tx_total());
+          if let Some(metric) = metric {
+            metrics
+              .block_io_tx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(metric as f64);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.block_io_rx_total());
+          if let Some(metric) = metric {
+            metrics
+              .block_io_rx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(metric as f64);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.network_tx_total());
+          if let Some(metric) = metric {
+            metrics
+              .network_tx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(metric as f64);
+          }
+        });
+      }
+
+      {
+        let metrics = Arc::clone(&self.metrics);
+        let stats = Arc::clone(&stats);
+        let labels = Arc::clone(&labels);
+        task::spawn(async move {
+          let metric = Option::as_ref(&stats).and_then(|s| s.network_rx_total());
+          if let Some(metric) = metric {
+            metrics
+              .network_rx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(metric as f64);
+          }
+        });
+      }
+    }
   }
 }
 
