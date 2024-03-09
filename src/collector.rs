@@ -14,13 +14,16 @@ use prometheus_client::{
     family::Family,
     gauge::{Atomic, Gauge},
   },
-  registry::{Metric, Unit},
+  registry::{Metric, Registry, Unit},
 };
 use std::{
   env,
   fmt::Error,
   ops::Deref,
-  sync::{atomic::AtomicU64, Arc},
+  sync::{
+    atomic::{AtomicI64, AtomicU64},
+    Arc,
+  },
 };
 use tokio::{
   runtime::Handle,
@@ -30,7 +33,7 @@ use tokio::{
 
 use crate::config::constants::{
   DEFAULT_DOCKER_API_VERSION, DEFAULT_DOCKER_CONNECTION_TIMEOUT, DEFAULT_DOCKER_SOCKET_PATH,
-  DOCKER_HOST_ENV,
+  DOCKER_HOST_ENV, PROMETHEUS_REGISTRY_PREFIX,
 };
 
 pub trait StatsExt {
@@ -128,353 +131,108 @@ impl StatsExt for Stats {
   }
 }
 
-pub struct ContainerMetric<M: Metric + ?Sized> {
-  name: String,
-  help: String,
-  metric: Box<M>,
-}
-
-#[derive(Debug, Clone, Eq, Hash, PartialEq, EncodeLabelSet)]
-pub struct ContainerMetricLabels {
+#[derive(Clone, Debug, EncodeLabelSet, Eq, Hash, PartialEq)]
+pub struct DockerMetricLabels {
   container_name: String,
-}
-
-pub trait DefaultCollector<S> {
-  type Metric;
-
-  fn new() -> Self;
-  async fn collect(&self, source: Arc<S>, tx: Arc<Sender<Self::Metric>>);
 }
 
 // TODO: enum for metric names?
 // TODO: check again metrics calculation, names etc.
+// TODO: http header for open metrics text?
+// TODO: tests
 
-#[derive(Debug)]
-pub struct DockerCollector {}
+pub struct DockerCollector {
+  pub registry: Registry,
+  pub metrics: DockerMetrics,
+}
 
-impl DefaultCollector<Docker> for DockerCollector {
-  type Metric = ContainerMetric<dyn Metric>;
+impl DockerCollector {
+  pub fn new() -> Self {
+    let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
+    let metrics = DockerMetrics::default();
 
-  fn new() -> Self {
-    Self {}
-  }
+    registry.register(
+      "container_running_boolean",
+      "container running as boolean (1 = true, 0 = false)",
+      Family::clone(&metrics.container_running_boolean),
+    );
 
-  async fn collect(&self, docker: Arc<Docker>, tx: Arc<Sender<Self::Metric>>) {
-    let containers = docker
-      .list_containers(Some(ListContainersOptions::<&str> {
-        all: true,
-        ..Default::default()
-      }))
-      .await
-      .unwrap_or_default();
+    registry.register(
+      "cpu_utilization_percent",
+      "cpu utilization in percent",
+      Family::clone(&metrics.cpu_utilization_percent),
+    );
 
-    for container in containers {
-      let docker = Arc::clone(&docker);
-      let tx = Arc::clone(&tx);
+    registry.register(
+      "memory_usage_bytes",
+      "memory usage in bytes",
+      Family::clone(&metrics.memory_usage_bytes),
+    );
 
-      task::spawn(async move {
-        let id = Arc::new(container.id);
+    registry.register(
+      "memory_bytes_total",
+      "memory total in bytes",
+      Family::clone(&metrics.memory_bytes_total),
+    );
 
-        let name = Arc::new(
-          container
-            .names
-            .and_then(|names| Some(names.join(";")))
-            .and_then(|mut name| Some(name.drain(1..).collect::<String>())),
-        );
+    registry.register(
+      "memory_utilization_percent",
+      "memory utilization in percent",
+      Family::clone(&metrics.memory_utilization_percent),
+    );
 
-        let state = {
-          let docker = Arc::clone(&docker);
-          let id = Arc::clone(&id);
+    registry.register(
+      "block_io_tx_bytes_total",
+      "block io written total in bytes",
+      Family::clone(&metrics.block_io_tx_bytes_total),
+    );
 
-          task::spawn(async move {
-            docker
-              .inspect_container(
-                id.as_deref().unwrap_or_default(),
-                Some(InspectContainerOptions {
-                  ..Default::default()
-                }),
-              )
-              .await
-          })
-          .map(|inspect| match inspect {
-            Ok(Ok(inspect)) => Arc::new(inspect.state),
-            _ => Arc::new(None),
-          })
-        };
+    registry.register(
+      "block_io_rx_bytes_total",
+      "block io read total in bytes",
+      Family::clone(&metrics.block_io_rx_bytes_total),
+    );
 
-        let stats = {
-          let docker = Arc::clone(&docker);
-          let id = Arc::clone(&id);
+    registry.register(
+      "network_tx_bytes_total",
+      "network sent total in bytes",
+      Family::clone(&metrics.network_tx_bytes_total),
+    );
 
-          task::spawn(async move {
-            docker
-              .stats(
-                id.as_deref().unwrap_or_default(),
-                Some(StatsOptions {
-                  stream: false,
-                  ..Default::default()
-                }),
-              )
-              .take(1)
-              .try_next()
-              .await
-          })
-          .map(|stats| match stats {
-            Ok(Ok(stats)) => Arc::new(stats),
-            _ => Arc::new(None),
-          })
-        };
+    registry.register(
+      "network_rx_bytes_total",
+      "network received total in bytes",
+      Family::clone(&metrics.network_rx_bytes_total),
+    );
 
-        let (state, stats) = tokio::join!(state, stats);
-
-        let labels = Arc::new(ContainerMetricLabels {
-          container_name: String::from(Option::as_ref(&name).unwrap()),
-        });
-
-        // TODO: do not unwrap in tasks
-        // TODO: DRY
-        // TODO: tests
-
-        {
-          let state = Arc::clone(&state);
-          let labels = Arc::clone(&labels);
-          let tx = Arc::clone(&tx);
-
-          task::spawn(async move {
-            let metric = Family::<ContainerMetricLabels, Gauge>::default();
-            metric
-              .get_or_create(&labels)
-              .set(Option::as_ref(&state).and_then(|s| s.running).unwrap() as i64);
-            tx.send(ContainerMetric {
-              name: String::from("container_running_boolean"),
-              help: String::from("container running as boolean (1 = true, 0 = false)"),
-              metric: Box::new(metric),
-            })
-            .await
-          });
-        }
-
-        if let Some(state) = &*state {
-          if let Some(true) = state.running {
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Gauge<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.cpu_utilization())
-                    .unwrap(),
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("cpu_utilization_percent"),
-                  help: String::from("cpu utilization in percent"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Gauge<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.memory_usage())
-                    .unwrap() as f64,
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("memory_usage_bytes"),
-                  help: String::from("memory usage in bytes"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Counter<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).inner().set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.memory_total())
-                    .unwrap() as f64,
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("memory_bytes"),
-                  help: String::from("memory total in bytes"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Gauge<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.memory_utilization())
-                    .unwrap(),
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("memory_utilization_percent"),
-                  help: String::from("memory utilization in percent"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Counter<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).inner().set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.block_io_tx_total())
-                    .unwrap() as f64,
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("block_io_tx_bytes"),
-                  help: String::from("block io written total in bytes"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Counter<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).inner().set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.block_io_rx_total())
-                    .unwrap() as f64,
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("block_io_rx_bytes"),
-                  help: String::from("block io read total in bytes"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Counter<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).inner().set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.network_tx_total())
-                    .unwrap() as f64,
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("network_tx_bytes"),
-                  help: String::from("network sent total in bytes"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-
-            {
-              let stats = Arc::clone(&stats);
-              let labels = Arc::clone(&labels);
-              let tx = Arc::clone(&tx);
-
-              task::spawn(async move {
-                let metric = Family::<ContainerMetricLabels, Counter<f64, AtomicU64>>::default();
-                metric.get_or_create(&labels).inner().set(
-                  Option::as_ref(&stats)
-                    .and_then(|s| s.network_rx_total())
-                    .unwrap() as f64,
-                );
-                tx.send(ContainerMetric {
-                  name: String::from("network_rx_bytes"),
-                  help: String::from("network received total in bytes"),
-                  metric: Box::new(metric),
-                })
-                .await
-              });
-            }
-          }
-        }
-      });
-    }
+    Self { registry, metrics }
   }
 }
 
-impl Collector for DockerCollector {
-  fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), Error> {
-    // Prometheus does not provide an async encode function which requires bridging between async and sync
-    // Unfortenately, task::spawn is not feasible as the encoder cannot be sent between threads safely
-    // Local spawning via task::spawn_local is also not suitable as the function parameters would escape the method
-    // Nevertheless, to prevent blocking the async executor, block_in_place is utilized instead
-    task::block_in_place(|| {
-      Handle::current().block_on(async {
-        let docker_connection = match env::var(DOCKER_HOST_ENV) {
-          Ok(docker_host) => Docker::connect_with_http(
-            &docker_host,
-            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
-            DEFAULT_DOCKER_API_VERSION,
-          ),
-          _ => Docker::connect_with_socket(
-            DEFAULT_DOCKER_SOCKET_PATH,
-            DEFAULT_DOCKER_CONNECTION_TIMEOUT,
-            DEFAULT_DOCKER_API_VERSION,
-          ),
-        };
+pub struct DockerMetrics {
+  pub container_running_boolean: Family<DockerMetricLabels, Gauge<i64, AtomicI64>>,
+  pub cpu_utilization_percent: Family<DockerMetricLabels, Gauge<f64, AtomicU64>>,
+  pub memory_usage_bytes: Family<DockerMetricLabels, Gauge<f64, AtomicU64>>,
+  pub memory_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
+  pub memory_utilization_percent: Family<DockerMetricLabels, Gauge<f64, AtomicU64>>,
+  pub block_io_tx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
+  pub block_io_rx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
+  pub network_tx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
+  pub network_rx_bytes_total: Family<DockerMetricLabels, Counter<f64, AtomicU64>>,
+}
 
-        let docker = match docker_connection {
-          Ok(docker) => Arc::new(docker),
-          Err(err) => {
-            eprintln!("failed to connect to docker daemon: {:?}", err);
-            return;
-          }
-        };
-
-        let (tx, mut rx) = mpsc::channel::<ContainerMetric<_>>(32);
-        self.collect(docker, Arc::new(tx)).await;
-
-        while let Some(ContainerMetric { name, help, metric }) = rx.recv().await {
-          encoder
-            .encode_descriptor(&name, &help, None, metric.metric_type())
-            .and_then(|encoder| metric.encode(encoder))
-            .map_err(|err| {
-              eprintln!("failed to encode metrics: {:?}", err);
-              err
-            })
-            .unwrap_or_default()
-        }
-      });
-    });
-
-    Ok(())
+impl Default for DockerMetrics {
+  fn default() -> Self {
+    Self {
+      container_running_boolean: Default::default(),
+      cpu_utilization_percent: Default::default(),
+      memory_usage_bytes: Default::default(),
+      memory_bytes_total: Default::default(),
+      memory_utilization_percent: Default::default(),
+      block_io_tx_bytes_total: Default::default(),
+      block_io_rx_bytes_total: Default::default(),
+      network_tx_bytes_total: Default::default(),
+      network_rx_bytes_total: Default::default(),
+    }
   }
 }
