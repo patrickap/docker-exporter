@@ -62,10 +62,6 @@ impl DockerCollector {
       ),
     };
 
-    if let Err(err) = &docker {
-      eprintln!("failed to connect to docker daemon: {:?}", err);
-    }
-
     let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
     let metrics = ContainerMetrics::default();
 
@@ -126,7 +122,10 @@ impl DockerCollector {
     Self {
       docker: match docker {
         Ok(docker) => Some(Arc::new(docker)),
-        _ => None,
+        Err(err) => {
+          eprintln!("failed to connect to docker daemon: {:?}", err);
+          None
+        }
       },
       registry: Arc::new(registry),
       metrics: Arc::new(metrics),
