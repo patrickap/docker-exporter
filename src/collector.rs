@@ -42,12 +42,30 @@ use crate::config::constants::{
 // TODO: tests
 
 pub struct DockerCollector {
+  docker: Option<Arc<Docker>>,
   pub registry: Arc<Registry>,
   pub metrics: Arc<ContainerMetrics>,
 }
 
 impl DockerCollector {
   pub fn new() -> Self {
+    let docker = match env::var(DOCKER_HOST_ENV) {
+      Ok(docker_host) => Docker::connect_with_http(
+        &docker_host,
+        DEFAULT_DOCKER_CONNECTION_TIMEOUT,
+        DEFAULT_DOCKER_API_VERSION,
+      ),
+      _ => Docker::connect_with_socket(
+        DEFAULT_DOCKER_SOCKET_PATH,
+        DEFAULT_DOCKER_CONNECTION_TIMEOUT,
+        DEFAULT_DOCKER_API_VERSION,
+      ),
+    };
+
+    if let Err(err) = &docker {
+      eprintln!("failed to connect to docker daemon: {:?}", err);
+    }
+
     let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
     let metrics = ContainerMetrics::default();
 
@@ -106,8 +124,92 @@ impl DockerCollector {
     );
 
     Self {
+      docker: match docker {
+        Ok(docker) => Some(Arc::new(docker)),
+        _ => None,
+      },
       registry: Arc::new(registry),
       metrics: Arc::new(metrics),
+    }
+  }
+
+  pub async fn process(&self) {
+    if let Some(docker) = Option::as_ref(&self.docker) {
+      let containers = docker
+        .list_containers(Some(ListContainersOptions::<&str> {
+          all: true,
+          ..Default::default()
+        }))
+        .await
+        .unwrap_or_default();
+
+      for container in containers {
+        let docker = Arc::clone(&docker);
+
+        task::spawn(async move {
+          let id = Arc::new(container.id);
+
+          let state = {
+            let docker = Arc::clone(&docker);
+            let id = Arc::clone(&id);
+
+            task::spawn(async move {
+              docker
+                .inspect_container(
+                  id.as_deref().unwrap_or_default(),
+                  Some(InspectContainerOptions {
+                    ..Default::default()
+                  }),
+                )
+                .await
+            })
+            .map(|inspect| match inspect {
+              Ok(Ok(inspect)) => Arc::new(inspect.state),
+              _ => Arc::new(None),
+            })
+          };
+
+          let stats = {
+            let docker = Arc::clone(&docker);
+            let id = Arc::clone(&id);
+
+            task::spawn(async move {
+              docker
+                .stats(
+                  id.as_deref().unwrap_or_default(),
+                  Some(StatsOptions {
+                    stream: false,
+                    ..Default::default()
+                  }),
+                )
+                .take(1)
+                .try_next()
+                .await
+            })
+            .map(|stats| match stats {
+              Ok(Ok(stats)) => Arc::new(stats),
+              _ => Arc::new(None),
+            })
+          };
+
+          let (state, stats) = tokio::join!(state, stats);
+
+          let labels = Arc::new(ContainerMetricLabels {
+            container_name: container
+              .names
+              .and_then(|names| Some(names.join(";")))
+              .and_then(|mut name| Some(name.drain(1..).collect()))
+              .unwrap_or_default(),
+          });
+
+          {
+            // let state = Arc::clone(&state);
+            // let stats = Arc::clone(&stats);
+            // let labels = Arc::clone(&labels);
+            task::spawn(async move { &self.collect(state, stats, labels) });
+          }
+        });
+      }
     }
   }
 
