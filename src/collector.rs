@@ -206,6 +206,7 @@ impl DockerCollector {
             // let state = Arc::clone(&state);
             // let stats = Arc::clone(&stats);
             // let labels = Arc::clone(&labels);
+            // TODO: fix...
             task::spawn(async move { &self.collect(state, stats, labels) });
           }
         });
