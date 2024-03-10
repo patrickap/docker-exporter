@@ -1,18 +1,18 @@
 use axum::{http::StatusCode, Extension};
-use prometheus_client::encoding::text;
+use bollard::Docker;
+use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
-
-use crate::collector::DockerCollector;
 
 pub async fn status() -> &'static str {
   "ok"
 }
 
 pub async fn metrics(
-  Extension(collector): Extension<Arc<DockerCollector>>,
+  Extension(docker): Extension<Arc<Docker>>,
+  Extension(registry): Extension<Arc<Registry>>,
 ) -> Result<String, StatusCode> {
   let mut buffer = String::new();
-  match text::encode(&mut buffer, &collector.registry) {
+  match text::encode(&mut buffer, &registry) {
     Ok(_) => Ok(buffer),
     _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
   }
