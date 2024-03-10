@@ -1,12 +1,14 @@
 use axum::{routing, Extension, Router};
+use prometheus_client::registry::Registry;
 use std::error::Error;
 use std::sync::Arc;
 use tokio::{net::TcpListener, signal};
 
 mod config;
 mod docker;
+mod routes;
 
-use crate::config::{constants::SERVER_ADDRESS, routes};
+use crate::config::constants::{REGISTRY_PREFIX, SERVER_ADDRESS};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -15,11 +17,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     err
   })?;
 
+  let mut registry = Registry::with_prefix(REGISTRY_PREFIX);
+
+  let metrics = docker::create_metrics();
+
+  docker::register_metrics(&mut registry, &metrics);
+
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(routes::status))
     .route("/metrics", routing::get(routes::metrics))
-    .layer(Extension(Arc::new(docker)));
+    .layer(Extension(Arc::new(docker)))
+    .layer(Extension(Arc::new(registry)))
+    .layer(Extension(Arc::new(metrics)));
 
   println!("server listening on {}", listener.local_addr()?);
   axum::serve(listener, router)
