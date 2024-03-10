@@ -1,9 +1,13 @@
 use axum::{http::StatusCode, Extension};
-use bollard::Docker;
+use bollard::{
+  container::{InspectContainerOptions, ListContainersOptions, StatsOptions},
+  Docker,
+};
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
+use tokio::task;
 
-use crate::metrics::Metrics;
+use crate::docker::metrics::Metrics;
 
 pub async fn status() -> &'static str {
   "ok"

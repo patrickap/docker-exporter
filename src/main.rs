@@ -4,22 +4,21 @@ use std::error::Error;
 use std::sync::Arc;
 use tokio::{net::TcpListener, signal};
 
-mod config;
+mod constants;
 mod docker;
-mod metrics;
 mod routes;
 
-use crate::config::constants::{REGISTRY_PREFIX, SERVER_ADDRESS};
-use crate::metrics::Metrics;
+use crate::constants::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS};
+use crate::docker::{collector::Collector, metrics::Metrics};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  let docker = docker::connect().map_err(|err| {
+  let docker = Collector::connect().map_err(|err| {
     eprintln!("failed to connect to docker daemon: {:?}", err);
     err
   })?;
 
-  let mut registry = Registry::with_prefix(REGISTRY_PREFIX);
+  let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
 
   let metrics = Metrics::new();
   metrics.register(&mut registry);
