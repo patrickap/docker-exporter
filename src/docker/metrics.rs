@@ -5,6 +5,7 @@ use prometheus_client::{
 };
 use std::sync::atomic::{AtomicI64, AtomicU64};
 
+#[derive(Default)]
 pub struct Metrics {
   pub state_running_boolean: Family<MetricsLabels, Gauge<i64, AtomicI64>>,
   pub cpu_utilization_percent: Family<MetricsLabels, Gauge<f64, AtomicU64>>,
@@ -78,22 +79,6 @@ impl Metrics {
       "network received total in bytes",
       Family::clone(&self.network_rx_bytes_total),
     );
-  }
-}
-
-impl Default for Metrics {
-  fn default() -> Self {
-    Self {
-      state_running_boolean: Default::default(),
-      cpu_utilization_percent: Default::default(),
-      memory_usage_bytes: Default::default(),
-      memory_bytes_total: Default::default(),
-      memory_utilization_percent: Default::default(),
-      block_io_tx_bytes_total: Default::default(),
-      block_io_rx_bytes_total: Default::default(),
-      network_tx_bytes_total: Default::default(),
-      network_rx_bytes_total: Default::default(),
-    }
   }
 }
 
