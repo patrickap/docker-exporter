@@ -3,16 +3,16 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::ContainerMetrics;
+use crate::metrics::Metrics;
 
 pub async fn status() -> &'static str {
   "ok"
 }
 
-pub async fn metrics<'a>(
+pub async fn metrics(
   Extension(docker): Extension<Arc<Docker>>,
   Extension(registry): Extension<Arc<Registry>>,
-  Extension(metrics): Extension<Arc<ContainerMetrics<'a>>>,
+  Extension(metrics): Extension<Arc<Metrics>>,
 ) -> Result<String, StatusCode> {
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {

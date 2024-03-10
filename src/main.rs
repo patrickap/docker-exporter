@@ -6,9 +6,11 @@ use tokio::{net::TcpListener, signal};
 
 mod config;
 mod docker;
+mod metrics;
 mod routes;
 
 use crate::config::constants::{REGISTRY_PREFIX, SERVER_ADDRESS};
+use crate::metrics::Metrics;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -19,9 +21,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let mut registry = Registry::with_prefix(REGISTRY_PREFIX);
 
-  let metrics = docker::create_metrics();
-
-  docker::register_metrics(&mut registry, &metrics);
+  let metrics = Metrics::new();
+  metrics.register(&mut registry);
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
