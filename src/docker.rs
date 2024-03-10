@@ -61,48 +61,48 @@ impl<'a> ContainerMetrics<'a> {
   pub fn new() -> ContainerMetrics<'a> {
     Self {
       state_running_boolean: ContainerMetric {
-        name: "",
-        help: "",
+        name: "state_running_boolean",
+        help: "state running as boolean (1 = true, 0 = false)",
         metric: Default::default(),
       },
       cpu_utilization_percent: ContainerMetric {
-        name: "",
-        help: "",
+        name: "cpu_utilization_percent",
+        help: "cpu utilization in percent",
         metric: Default::default(),
       },
       memory_usage_bytes: ContainerMetric {
-        name: "",
-        help: "",
+        name: "memory_usage_bytes",
+        help: "memory usage in bytes",
         metric: Default::default(),
       },
       memory_bytes_total: ContainerMetric {
-        name: "",
-        help: "",
+        name: "memory_bytes_total",
+        help: "memory total in bytes",
         metric: Default::default(),
       },
       memory_utilization_percent: ContainerMetric {
-        name: "",
-        help: "",
+        name: "memory_utilization_percent",
+        help: "memory utilization in percent",
         metric: Default::default(),
       },
       block_io_tx_bytes_total: ContainerMetric {
-        name: "",
-        help: "",
+        name: "block_io_tx_bytes_total",
+        help: "block io written total in bytes",
         metric: Default::default(),
       },
       block_io_rx_bytes_total: ContainerMetric {
-        name: "",
-        help: "",
+        name: "block_io_rx_bytes_total",
+        help: "block io read total in bytes",
         metric: Default::default(),
       },
       network_tx_bytes_total: ContainerMetric {
-        name: "",
-        help: "",
+        name: "network_tx_bytes_total",
+        help: "network sent total in bytes",
         metric: Default::default(),
       },
       network_rx_bytes_total: ContainerMetric {
-        name: "",
-        help: "",
+        name: "network_rx_bytes_total",
+        help: "network received total in bytes",
         metric: Default::default(),
       },
     }
