@@ -8,12 +8,13 @@ use bollard::{
   Docker,
 };
 use futures::{
+  future,
   stream::{StreamExt, TryStreamExt},
   FutureExt,
 };
 use prometheus_client::metrics::gauge::Atomic;
 use std::sync::Arc;
-use tokio::task::{self, JoinSet};
+use tokio::task::{self, JoinError, JoinSet};
 
 use super::metrics::{Metrics, MetricsLabels};
 
@@ -245,7 +246,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
   while let Some(_) = main_set.join_next().await {}
 }
 
-struct ContainerInfo {
+pub struct ContainerInfo {
   id: Option<String>,
   name: Option<String>,
   state: Option<ContainerState>,
@@ -253,30 +254,31 @@ struct ContainerInfo {
 }
 
 impl ContainerInfo {
-  pub async fn new(docker: Arc<Docker>) -> Vec<Self> {
+  pub async fn new(docker: Arc<Docker>) -> Vec<Result<Self, JoinError>> {
     let containers = Self::get_all(&docker).await.unwrap_or_default();
 
-    let result = containers.into_iter().map(|container| {
+    let container_infos = containers.into_iter().map(|container| {
       let docker = Arc::clone(&docker);
-      let container_id = Arc::new(container.id);
 
       task::spawn(async move {
+        let container_id = Arc::new(container.id);
+
         let container_state = {
           let docker = Arc::clone(&docker);
           let container_id = Arc::clone(&container_id);
-          task::spawn(async move { Self::get_state(&docker, Option::clone(&container_id)).await })
+          task::spawn(async move { Self::get_state(&docker, container_id.as_ref()).await })
         };
 
         let container_stats = {
           let docker = Arc::clone(&docker);
           let container_id = Arc::clone(&container_id);
-          task::spawn(async move { Self::get_stats(&docker, Option::clone(&container_id)).await })
+          task::spawn(async move { Self::get_stats(&docker, container_id.as_ref()).await })
         };
 
         let (container_state, container_stats) = tokio::join!(container_state, container_stats);
 
         Self {
-          id: container.id,
+          id: Option::clone(&*container_id),
           name: Self::get_name(container.names),
           state: container_state.ok().flatten(),
           stats: container_stats.ok().flatten(),
@@ -284,7 +286,7 @@ impl ContainerInfo {
       })
     });
 
-    [].into()
+    future::join_all(container_infos).await
   }
 
   async fn get_all(docker: &Docker) -> Option<Vec<ContainerList>> {
@@ -303,10 +305,10 @@ impl ContainerInfo {
       .and_then(|mut name| Some(name.drain(1..).collect()))
   }
 
-  async fn get_state(docker: &Docker, id: Option<String>) -> Option<ContainerState> {
+  async fn get_state(docker: &Docker, id: &Option<String>) -> Option<ContainerState> {
     docker
       .inspect_container(
-        &id?,
+        id.as_deref().unwrap_or_default(),
         Some(InspectContainerOptions {
           ..Default::default()
         }),
@@ -316,10 +318,10 @@ impl ContainerInfo {
       .and_then(|inspect| inspect.state)
   }
 
-  async fn get_stats(docker: &Docker, id: Option<String>) -> Option<ContainerStats> {
+  async fn get_stats(docker: &Docker, id: &Option<String>) -> Option<ContainerStats> {
     docker
       .stats(
-        &id?,
+        id.as_deref().unwrap_or_default(),
         Some(StatsOptions {
           stream: false,
           ..Default::default()
