@@ -10,7 +10,7 @@ use futures::{
 };
 use prometheus_client::metrics::gauge::Atomic;
 use std::sync::Arc;
-use tokio::task;
+use tokio::task::{self, JoinSet};
 
 use super::metrics::{Metrics, MetricsLabels};
 
@@ -23,11 +23,14 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
     .await
     .unwrap_or_default();
 
+  let mut main_set = JoinSet::new();
+
   for container in containers {
     let docker = Arc::clone(&docker);
     let metrics = Arc::clone(&metrics);
+    let mut set = JoinSet::new();
 
-    task::spawn(async move {
+    main_set.spawn(async move {
       let id = Arc::new(container.id.unwrap_or_default());
 
       let name = Arc::new(
@@ -90,7 +93,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
         let metrics = Arc::clone(&metrics);
         let state = Arc::clone(&state);
         let labels = Arc::clone(&labels);
-        task::spawn(async move {
+        set.spawn(async move {
           let metric = Option::as_ref(&state).and_then(|s| s.running);
           metrics
             .state_running_boolean
@@ -108,7 +111,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.cpu_utilization());
             if let Some(metric) = metric {
               metrics
@@ -123,7 +126,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.memory_usage());
             if let Some(metric) = metric {
               metrics
@@ -139,7 +142,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.memory_total());
             if let Some(metric) = metric {
               metrics
@@ -155,7 +158,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.memory_utilization());
             if let Some(metric) = metric {
               metrics
@@ -171,7 +174,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.block_io_tx_total());
             if let Some(metric) = metric {
               metrics
@@ -187,7 +190,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.block_io_rx_total());
             if let Some(metric) = metric {
               metrics
@@ -203,7 +206,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.network_tx_total());
             if let Some(metric) = metric {
               metrics
@@ -219,7 +222,7 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           let metrics = Arc::clone(&metrics);
           let stats = Arc::clone(&stats);
           let labels = Arc::clone(&labels);
-          task::spawn(async move {
+          set.spawn(async move {
             let metric = Option::as_ref(&stats).and_then(|s| s.network_rx_total());
             if let Some(metric) = metric {
               metrics
@@ -231,8 +234,12 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
           });
         }
       }
+
+      while let Some(_) = set.join_next().await {}
     });
   }
+
+  while let Some(_) = main_set.join_next().await {}
 }
 
 pub trait StatsExt {
