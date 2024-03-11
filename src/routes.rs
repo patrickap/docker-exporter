@@ -14,7 +14,9 @@ pub async fn metrics(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(metrics): Extension<Arc<Metrics>>,
 ) -> Result<String, StatusCode> {
-  container::collect_metrics(Arc::clone(&docker), Arc::clone(&metrics)).await;
+  container::collect_metrics(Arc::clone(&docker), Arc::clone(&metrics))
+    .await
+    .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {

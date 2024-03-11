@@ -16,16 +16,16 @@ use tokio::task::JoinError;
 
 use super::metrics::{Metrics, MetricsLabels};
 
-pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
-  let infos = ContainerInfo::new(docker).await.unwrap_or_default();
+pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) -> Result<(), JoinError> {
+  let containers = ContainerInfo::new(docker).await?;
 
-  for info in infos {
+  for container in containers {
     let ContainerInfo {
       id,
       name,
       state,
       stats,
-    } = info;
+    } = container;
 
     let labels = MetricsLabels {
       container_id: id.unwrap_or_default(),
@@ -106,6 +106,8 @@ pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
       }
     }
   }
+
+  Ok(())
 }
 
 pub struct ContainerInfo {
