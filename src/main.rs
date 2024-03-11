@@ -1,19 +1,22 @@
-use axum::{routing, Extension, Router};
-use prometheus_client::registry::Registry;
-use std::error::Error;
-use std::sync::Arc;
-use tokio::{net::TcpListener, signal};
-
 mod constants;
 mod docker;
 mod routes;
 
+use axum::{routing, Extension, Router};
+use prometheus_client::registry::Registry;
+use std::{error::Error, sync::Arc};
+use tokio::{net::TcpListener, signal};
+
 use crate::constants::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS};
-use crate::docker::{collector::Collector, metrics::Metrics};
+use crate::docker::metrics::Metrics;
+
+// TODO: check again metrics calculation, names etc.
+// TODO: http header for open metrics text?
+// TODO: tests
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  let docker = Collector::connect().map_err(|err| {
+  let docker = docker::connect().map_err(|err| {
     eprintln!("failed to connect to docker daemon: {:?}", err);
     err
   })?;

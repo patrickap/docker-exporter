@@ -1,13 +1,9 @@
 use axum::{http::StatusCode, Extension};
-use bollard::{
-  container::{InspectContainerOptions, ListContainersOptions, StatsOptions},
-  Docker,
-};
+use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
-use tokio::task;
 
-use crate::docker::metrics::Metrics;
+use crate::docker::{container, metrics::Metrics};
 
 pub async fn status() -> &'static str {
   "ok"
@@ -18,6 +14,8 @@ pub async fn metrics(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(metrics): Extension<Arc<Metrics>>,
 ) -> Result<String, StatusCode> {
+  container::collect_metrics(Arc::clone(&docker), Arc::clone(&metrics)).await;
+
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
     Ok(_) => Ok(buffer),

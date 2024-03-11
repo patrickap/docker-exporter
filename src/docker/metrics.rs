@@ -84,5 +84,5 @@ impl Metrics {
 
 #[derive(Clone, Debug, EncodeLabelSet, Eq, Hash, PartialEq)]
 pub struct MetricsLabels {
-  container_name: String,
+  pub container_name: String,
 }
