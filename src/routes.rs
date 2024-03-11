@@ -3,18 +3,19 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::{container, metrics::Metrics};
+use crate::docker::metrics::{Metrics, MetricsCollector};
 
 pub async fn status() -> &'static str {
   "ok"
 }
 
 pub async fn metrics(
-  Extension(docker): Extension<Arc<Docker>>,
   Extension(registry): Extension<Arc<Registry>>,
+  Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<Metrics>>,
 ) -> Result<String, StatusCode> {
-  container::collect_metrics(Arc::clone(&docker), Arc::clone(&metrics))
+  metrics
+    .collect_metrics(Arc::clone(&docker), Arc::clone(&metrics))
     .await
     .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
 
@@ -27,11 +28,9 @@ pub async fn metrics(
 
 #[cfg(test)]
 mod tests {
-  use std::fmt::Error;
-
-  use prometheus_client::{collector::Collector, encoding::DescriptorEncoder};
-
   use super::*;
+  use crate::docker::metrics::Metrics;
+  use std::error::Error;
 
   #[tokio::test]
   async fn it_returns_status() {
@@ -41,13 +40,13 @@ mod tests {
 
   #[tokio::test]
   async fn it_returns_metrics_ok() {
-    let d = Docker::connect_with_socket_defaults().unwrap();
     let r = Registry::from(Default::default());
+    let d = Docker::connect_with_socket_defaults().unwrap();
     let m = Metrics::new();
 
     let result = metrics(
-      Extension(Arc::new(d)),
       Extension(Arc::new(r)),
+      Extension(Arc::new(d)),
       Extension(Arc::new(m)),
     )
     .await;
@@ -59,23 +58,25 @@ mod tests {
   #[tokio::test]
   async fn it_returns_metrics_err() {
     #[derive(Debug)]
-    struct ErrCollector {}
+    struct MockMetrics {}
 
-    impl Collector for ErrCollector {
-      fn encode(&self, _: DescriptorEncoder) -> Result<(), Error> {
-        Err(Default::default())
+    impl MetricsCollector for MockMetrics {
+      async fn collect_metrics(
+        &self,
+        _: Arc<Docker>,
+        _: Arc<Metrics>,
+      ) -> Result<(), Box<dyn Error>> {
+        Err(Box::new(std::fmt::Error {}))
       }
     }
 
     let d = Docker::connect_with_socket_defaults().unwrap();
-    let mut r = Registry::from(Default::default());
-    let m = Metrics::new();
-
-    r.register_collector(Box::new(ErrCollector {}));
+    let r = Registry::from(Default::default());
+    let m = MockMetrics {};
 
     let result = metrics(
-      Extension(Arc::new(d)),
       Extension(Arc::new(r)),
+      Extension(Arc::new(d)),
       Extension(Arc::new(m)),
     )
     .await;

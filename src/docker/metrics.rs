@@ -1,9 +1,22 @@
+use bollard::Docker;
 use prometheus_client::{
   encoding::EncodeLabelSet,
-  metrics::{counter::Counter, family::Family, gauge::Gauge},
+  metrics::{
+    counter::Counter,
+    family::Family,
+    gauge::{Atomic, Gauge},
+  },
   registry::Registry,
 };
-use std::sync::atomic::{AtomicI64, AtomicU64};
+use std::{
+  error::Error,
+  sync::{
+    atomic::{AtomicI64, AtomicU64},
+    Arc,
+  },
+};
+
+use crate::docker::container::{ContainerInfo, StatsExt};
 
 #[derive(Default)]
 pub struct Metrics {
@@ -24,8 +37,14 @@ impl Metrics {
       ..Default::default()
     }
   }
+}
 
-  pub fn register(&self, registry: &mut Registry) {
+pub trait MetricsRegister<R = Registry> {
+  fn register_metrics(&self, registry: &mut R) -> ();
+}
+
+impl MetricsRegister<Registry> for Metrics {
+  fn register_metrics(&self, registry: &mut Registry) {
     registry.register(
       "state_running_boolean",
       "state running as boolean (1 = true, 0 = false)",
@@ -79,6 +98,110 @@ impl Metrics {
       "network received total in bytes",
       Family::clone(&self.network_rx_bytes_total),
     );
+  }
+}
+
+pub trait MetricsCollector<S = Docker, M = Metrics> {
+  async fn collect_metrics(&self, source: Arc<S>, metrics: Arc<M>) -> Result<(), Box<dyn Error>>;
+}
+
+impl MetricsCollector<Docker, Metrics> for Metrics {
+  async fn collect_metrics(
+    &self,
+    docker: Arc<Docker>,
+    metrics: Arc<Metrics>,
+  ) -> Result<(), Box<dyn Error>> {
+    let containers = ContainerInfo::new(docker).await?;
+
+    for container in containers {
+      let ContainerInfo {
+        id,
+        name,
+        state,
+        stats,
+      } = container;
+
+      let labels = MetricsLabels {
+        container_id: id.unwrap_or_default(),
+        container_name: name.unwrap_or_default(),
+      };
+
+      if let Some(state) = state {
+        if let Some(state_running) = state.running {
+          metrics
+            .state_running_boolean
+            .get_or_create(&labels)
+            .set(state_running as i64);
+        }
+
+        if let Some(true) = state.running {
+          if let Some(stats) = stats {
+            if let Some(cpu_utilization) = stats.cpu_utilization() {
+              metrics
+                .cpu_utilization_percent
+                .get_or_create(&labels)
+                .set(cpu_utilization);
+            }
+
+            if let Some(memory_usage) = stats.memory_usage() {
+              metrics
+                .memory_usage_bytes
+                .get_or_create(&labels)
+                .set(memory_usage as f64);
+            }
+
+            if let Some(memory_total) = stats.memory_total() {
+              metrics
+                .memory_bytes_total
+                .get_or_create(&labels)
+                .inner()
+                .set(memory_total as f64);
+            }
+
+            if let Some(memory_utilization) = stats.memory_utilization() {
+              metrics
+                .memory_utilization_percent
+                .get_or_create(&labels)
+                .set(memory_utilization);
+            }
+
+            if let Some(block_io_tx_total) = stats.block_io_tx_total() {
+              metrics
+                .block_io_tx_bytes_total
+                .get_or_create(&labels)
+                .inner()
+                .set(block_io_tx_total as f64);
+            }
+
+            if let Some(block_io_rx_total) = stats.block_io_rx_total() {
+              metrics
+                .block_io_rx_bytes_total
+                .get_or_create(&labels)
+                .inner()
+                .set(block_io_rx_total as f64);
+            }
+
+            if let Some(network_tx_total) = stats.network_tx_total() {
+              metrics
+                .network_tx_bytes_total
+                .get_or_create(&labels)
+                .inner()
+                .set(network_tx_total as f64);
+            }
+
+            if let Some(network_rx_total) = stats.network_rx_total() {
+              metrics
+                .network_rx_bytes_total
+                .get_or_create(&labels)
+                .inner()
+                .set(network_rx_total as f64);
+            }
+          }
+        }
+      }
+    }
+
+    Ok(())
   }
 }
 

@@ -10,111 +10,14 @@ use futures::{
   future,
   stream::{StreamExt, TryStreamExt},
 };
-use prometheus_client::metrics::gauge::Atomic;
 use std::sync::Arc;
 use tokio::task::JoinError;
 
-use super::metrics::{Metrics, MetricsLabels};
-
-pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) -> Result<(), JoinError> {
-  let containers = ContainerInfo::new(docker).await?;
-
-  for container in containers {
-    let ContainerInfo {
-      id,
-      name,
-      state,
-      stats,
-    } = container;
-
-    let labels = MetricsLabels {
-      container_id: id.unwrap_or_default(),
-      container_name: name.unwrap_or_default(),
-    };
-
-    if let Some(state) = state {
-      if let Some(state_running) = state.running {
-        metrics
-          .state_running_boolean
-          .get_or_create(&labels)
-          .set(state_running as i64);
-      }
-
-      if let Some(true) = state.running {
-        if let Some(stats) = stats {
-          if let Some(cpu_utilization) = stats.cpu_utilization() {
-            metrics
-              .cpu_utilization_percent
-              .get_or_create(&labels)
-              .set(cpu_utilization);
-          }
-
-          if let Some(memory_usage) = stats.memory_usage() {
-            metrics
-              .memory_usage_bytes
-              .get_or_create(&labels)
-              .set(memory_usage as f64);
-          }
-
-          if let Some(memory_total) = stats.memory_total() {
-            metrics
-              .memory_bytes_total
-              .get_or_create(&labels)
-              .inner()
-              .set(memory_total as f64);
-          }
-
-          if let Some(memory_utilization) = stats.memory_utilization() {
-            metrics
-              .memory_utilization_percent
-              .get_or_create(&labels)
-              .set(memory_utilization);
-          }
-
-          if let Some(block_io_tx_total) = stats.block_io_tx_total() {
-            metrics
-              .block_io_tx_bytes_total
-              .get_or_create(&labels)
-              .inner()
-              .set(block_io_tx_total as f64);
-          }
-
-          if let Some(block_io_rx_total) = stats.block_io_rx_total() {
-            metrics
-              .block_io_rx_bytes_total
-              .get_or_create(&labels)
-              .inner()
-              .set(block_io_rx_total as f64);
-          }
-
-          if let Some(network_tx_total) = stats.network_tx_total() {
-            metrics
-              .network_tx_bytes_total
-              .get_or_create(&labels)
-              .inner()
-              .set(network_tx_total as f64);
-          }
-
-          if let Some(network_rx_total) = stats.network_rx_total() {
-            metrics
-              .network_rx_bytes_total
-              .get_or_create(&labels)
-              .inner()
-              .set(network_rx_total as f64);
-          }
-        }
-      }
-    }
-  }
-
-  Ok(())
-}
-
 pub struct ContainerInfo {
-  id: Option<String>,
-  name: Option<String>,
-  state: Option<ContainerState>,
-  stats: Option<ContainerStats>,
+  pub id: Option<String>,
+  pub name: Option<String>,
+  pub state: Option<ContainerState>,
+  pub stats: Option<ContainerStats>,
 }
 
 impl ContainerInfo {
