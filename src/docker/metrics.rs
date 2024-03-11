@@ -114,8 +114,8 @@ pub trait MetricsCollect {
 impl MetricsCollect for Metrics {
   type Collector = Docker;
 
-  async fn collect_metrics(&self, docker: Arc<Self::Collector>) -> Result<(), Box<dyn Error>> {
-    let containers = ContainerInfo::gather(docker).await?;
+  async fn collect_metrics(&self, collector: Arc<Self::Collector>) -> Result<(), Box<dyn Error>> {
+    let containers = ContainerInfo::gather(collector).await?;
 
     for container in containers {
       let ContainerInfo {
