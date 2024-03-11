@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(routes::status))
-    .route("/metrics", routing::get(routes::metrics))
+    .route("/metrics", routing::get(routes::metrics::<Metrics>))
     .layer(Extension(Arc::new(registry)))
     .layer(Extension(Arc::new(docker)))
     .layer(Extension(Arc::new(metrics)));

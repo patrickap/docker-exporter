@@ -3,16 +3,16 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::metrics::{Metrics, MetricsCollector};
+use crate::docker::metrics::MetricsCollector;
 
 pub async fn status() -> &'static str {
   "ok"
 }
 
-pub async fn metrics(
+pub async fn metrics<M: MetricsCollector<Docker, M>>(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(docker): Extension<Arc<Docker>>,
-  Extension(metrics): Extension<Arc<Metrics>>,
+  Extension(metrics): Extension<Arc<M>>,
 ) -> Result<String, StatusCode> {
   metrics
     .collect_metrics(Arc::clone(&docker), Arc::clone(&metrics))
