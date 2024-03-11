@@ -1,7 +1,7 @@
 use bollard::{
   container::{
     InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats as ContainerStats,
-    StatsOptions,
+    StatsOptions as StatsContainerOptions,
   },
   secret::{ContainerState, ContainerSummary as Container},
   Docker,
@@ -21,8 +21,8 @@ pub struct ContainerInfo {
 }
 
 impl ContainerInfo {
-  pub async fn new(docker: Arc<Docker>) -> Result<Vec<Self>, JoinError> {
-    let containers = Self::get_all(&docker).await.unwrap_or_default();
+  pub async fn gather(docker: Arc<Docker>) -> Result<Vec<Self>, JoinError> {
+    let containers = Self::get_containers(&docker).await.unwrap_or_default();
 
     let infos = containers.into_iter().map(|container| {
       let docker = Arc::clone(&docker);
@@ -33,20 +33,20 @@ impl ContainerInfo {
         let state = {
           let docker = Arc::clone(&docker);
           let container = Arc::clone(&container);
-          tokio::spawn(async move { Self::get_state(&docker, &container).await })
+          tokio::spawn(async move { Self::get_container_state(&docker, &container).await })
         };
 
         let stats = {
           let docker = Arc::clone(&docker);
           let container = Arc::clone(&container);
-          tokio::spawn(async move { Self::get_stats(&docker, &container).await })
+          tokio::spawn(async move { Self::get_container_stats(&docker, &container).await })
         };
 
         let (state, stats) = tokio::join!(state, stats);
 
         Self {
           id: container.id.as_ref().map(|id| String::from(id)),
-          name: Self::get_name(&container),
+          name: Self::get_container_name(&container),
           state: state.ok().flatten(),
           stats: stats.ok().flatten(),
         }
@@ -56,7 +56,7 @@ impl ContainerInfo {
     future::try_join_all(infos).await
   }
 
-  async fn get_all(docker: &Docker) -> Option<Vec<Container>> {
+  async fn get_containers(docker: &Docker) -> Option<Vec<Container>> {
     docker
       .list_containers(Some(ListContainersOptions::<&str> {
         all: true,
@@ -66,7 +66,7 @@ impl ContainerInfo {
       .ok()
   }
 
-  fn get_name(container: &Container) -> Option<String> {
+  fn get_container_name(container: &Container) -> Option<String> {
     container
       .names
       .as_ref()
@@ -74,7 +74,7 @@ impl ContainerInfo {
       .and_then(|mut name| Some(name.drain(1..).collect()))
   }
 
-  async fn get_state(docker: &Docker, container: &Container) -> Option<ContainerState> {
+  async fn get_container_state(docker: &Docker, container: &Container) -> Option<ContainerState> {
     docker
       .inspect_container(
         container.id.as_deref().unwrap_or_default(),
@@ -87,11 +87,11 @@ impl ContainerInfo {
       .and_then(|inspect| inspect.state)
   }
 
-  async fn get_stats(docker: &Docker, container: &Container) -> Option<ContainerStats> {
+  async fn get_container_stats(docker: &Docker, container: &Container) -> Option<ContainerStats> {
     docker
       .stats(
         container.id.as_deref().unwrap_or_default(),
-        Some(StatsOptions {
+        Some(StatsContainerOptions {
           stream: false,
           ..Default::default()
         }),
@@ -104,7 +104,7 @@ impl ContainerInfo {
   }
 }
 
-pub trait StatsExt {
+pub trait ContainerStatsExt {
   fn cpu_delta(&self) -> Option<u64>;
   fn cpu_delta_system(&self) -> Option<u64>;
   fn cpu_count(&self) -> Option<u64>;
@@ -120,7 +120,7 @@ pub trait StatsExt {
   fn network_rx_total(&self) -> Option<u64>;
 }
 
-impl StatsExt for ContainerStats {
+impl ContainerStatsExt for ContainerStats {
   fn cpu_delta(&self) -> Option<u64> {
     Some(self.cpu_stats.cpu_usage.total_usage - self.precpu_stats.cpu_usage.total_usage)
   }
