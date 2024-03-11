@@ -39,7 +39,7 @@ impl Metrics {
   }
 }
 
-pub trait MetricsRegister<R = Registry> {
+pub trait MetricsRegister<R> {
   fn register_metrics(&self, registry: &mut R) -> ();
 }
 
@@ -101,11 +101,11 @@ impl MetricsRegister<Registry> for Metrics {
   }
 }
 
-pub trait MetricsCollector<S = Docker, M = Metrics> {
+pub trait MetricsCollector<S, M> {
   async fn collect_metrics(&self, source: Arc<S>, metrics: Arc<M>) -> Result<(), Box<dyn Error>>;
 }
 
-impl MetricsCollector<Docker, Metrics> for Metrics {
+impl MetricsCollector<Docker, Self> for Metrics {
   async fn collect_metrics(
     &self,
     docker: Arc<Docker>,
