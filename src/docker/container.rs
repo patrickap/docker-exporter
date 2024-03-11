@@ -3,247 +3,109 @@ use bollard::{
     InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats as ContainerStats,
     StatsOptions,
   },
-  errors::Error,
-  secret::{ContainerInspectResponse, ContainerState, ContainerSummary as ContainerList},
+  secret::{ContainerState, ContainerSummary as ContainerList},
   Docker,
 };
 use futures::{
   future,
   stream::{StreamExt, TryStreamExt},
-  FutureExt,
 };
 use prometheus_client::metrics::gauge::Atomic;
 use std::sync::Arc;
-use tokio::task::{self, JoinError, JoinSet};
+use tokio::task::{self, JoinError};
 
 use super::metrics::{Metrics, MetricsLabels};
 
 pub async fn collect_metrics(docker: Arc<Docker>, metrics: Arc<Metrics>) {
-  let containers = docker
-    .list_containers(Some(ListContainersOptions::<&str> {
-      all: true,
-      ..Default::default()
-    }))
-    .await
-    .unwrap_or_default();
+  let infos = ContainerInfo::new(docker).await.unwrap_or_default();
 
-  let mut main_set = JoinSet::new();
+  for info in infos {
+    let ContainerInfo {
+      id,
+      name,
+      state,
+      stats,
+    } = info;
 
-  for container in containers {
-    let docker = Arc::clone(&docker);
-    let metrics = Arc::clone(&metrics);
-    let mut set = JoinSet::new();
+    let labels = MetricsLabels {
+      container_id: id.unwrap_or_default(),
+      container_name: name.unwrap_or_default(),
+    };
 
-    main_set.spawn(async move {
-      let id = Arc::new(container.id.unwrap_or_default());
-
-      let name = Arc::new(
-        container
-          .names
-          .and_then(|names| Some(names.join(";")))
-          .and_then(|mut name| Some(name.drain(1..).collect::<String>()))
-          .unwrap_or_default(),
-      );
-
-      let state = {
-        let docker = Arc::clone(&docker);
-        let id = Arc::clone(&id);
-
-        task::spawn(async move {
-          docker
-            .inspect_container(
-              &id,
-              Some(InspectContainerOptions {
-                ..Default::default()
-              }),
-            )
-            .await
-        })
-        .map(|inspect| match inspect {
-          Ok(Ok(inspect)) => Arc::new(inspect.state),
-          _ => Arc::new(None),
-        })
-      };
-
-      let stats = {
-        let docker = Arc::clone(&docker);
-        let id = Arc::clone(&id);
-
-        task::spawn(async move {
-          docker
-            .stats(
-              &id,
-              Some(StatsOptions {
-                stream: false,
-                ..Default::default()
-              }),
-            )
-            .take(1)
-            .try_next()
-            .await
-        })
-        .map(|stats| match stats {
-          Ok(Ok(stats)) => Arc::new(stats),
-          _ => Arc::new(None),
-        })
-      };
-
-      let (state, stats) = tokio::join!(state, stats);
-      let labels = Arc::new(MetricsLabels {
-        container_name: String::from(&*name),
-      });
-
-      {
-        let metrics = Arc::clone(&metrics);
-        let state = Arc::clone(&state);
-        let labels = Arc::clone(&labels);
-        set.spawn(async move {
-          let metric = Option::as_ref(&state).and_then(|s| s.running);
-          metrics
-            .state_running_boolean
-            .get_or_create(&labels)
-            .set(metric.unwrap_or_default() as i64);
-        });
+    if let Some(state) = state {
+      if let Some(state_running) = state.running {
+        metrics
+          .state_running_boolean
+          .get_or_create(&labels)
+          .set(state_running as i64);
       }
 
-      let running = Option::as_ref(&state)
-        .and_then(|s| s.running)
-        .unwrap_or_default();
+      if let Some(true) = state.running {
+        if let Some(stats) = stats {
+          if let Some(cpu_utilization) = stats.cpu_utilization() {
+            metrics
+              .cpu_utilization_percent
+              .get_or_create(&labels)
+              .set(cpu_utilization);
+          }
 
-      if running {
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.cpu_utilization());
-            if let Some(metric) = metric {
-              metrics
-                .cpu_utilization_percent
-                .get_or_create(&labels)
-                .set(metric);
-            }
-          });
-        }
+          if let Some(memory_usage) = stats.memory_usage() {
+            metrics
+              .memory_usage_bytes
+              .get_or_create(&labels)
+              .set(memory_usage as f64);
+          }
 
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.memory_usage());
-            if let Some(metric) = metric {
-              metrics
-                .memory_usage_bytes
-                .get_or_create(&labels)
-                .inner()
-                .set(metric as f64);
-            }
-          });
-        }
+          if let Some(memory_total) = stats.memory_total() {
+            metrics
+              .memory_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(memory_total as f64);
+          }
 
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.memory_total());
-            if let Some(metric) = metric {
-              metrics
-                .memory_bytes_total
-                .get_or_create(&labels)
-                .inner()
-                .set(metric as f64);
-            }
-          });
-        }
+          if let Some(memory_utilization) = stats.memory_utilization() {
+            metrics
+              .memory_utilization_percent
+              .get_or_create(&labels)
+              .set(memory_utilization);
+          }
 
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.memory_utilization());
-            if let Some(metric) = metric {
-              metrics
-                .memory_utilization_percent
-                .get_or_create(&labels)
-                .inner()
-                .set(metric);
-            }
-          });
-        }
+          if let Some(block_io_tx_total) = stats.block_io_tx_total() {
+            metrics
+              .block_io_tx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(block_io_tx_total as f64);
+          }
 
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.block_io_tx_total());
-            if let Some(metric) = metric {
-              metrics
-                .block_io_tx_bytes_total
-                .get_or_create(&labels)
-                .inner()
-                .set(metric as f64);
-            }
-          });
-        }
+          if let Some(block_io_rx_total) = stats.block_io_rx_total() {
+            metrics
+              .block_io_rx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(block_io_rx_total as f64);
+          }
 
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.block_io_rx_total());
-            if let Some(metric) = metric {
-              metrics
-                .block_io_rx_bytes_total
-                .get_or_create(&labels)
-                .inner()
-                .set(metric as f64);
-            }
-          });
-        }
+          if let Some(network_tx_total) = stats.network_tx_total() {
+            metrics
+              .network_tx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(network_tx_total as f64);
+          }
 
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.network_tx_total());
-            if let Some(metric) = metric {
-              metrics
-                .network_tx_bytes_total
-                .get_or_create(&labels)
-                .inner()
-                .set(metric as f64);
-            }
-          });
-        }
-
-        {
-          let metrics = Arc::clone(&metrics);
-          let stats = Arc::clone(&stats);
-          let labels = Arc::clone(&labels);
-          set.spawn(async move {
-            let metric = Option::as_ref(&stats).and_then(|s| s.network_rx_total());
-            if let Some(metric) = metric {
-              metrics
-                .network_rx_bytes_total
-                .get_or_create(&labels)
-                .inner()
-                .set(metric as f64);
-            }
-          });
+          if let Some(network_rx_total) = stats.network_rx_total() {
+            metrics
+              .network_rx_bytes_total
+              .get_or_create(&labels)
+              .inner()
+              .set(network_rx_total as f64);
+          }
         }
       }
-
-      while let Some(_) = set.join_next().await {}
-    });
+    }
   }
-
-  while let Some(_) = main_set.join_next().await {}
 }
 
 pub struct ContainerInfo {
@@ -254,7 +116,7 @@ pub struct ContainerInfo {
 }
 
 impl ContainerInfo {
-  pub async fn new(docker: Arc<Docker>) -> Vec<Result<Self, JoinError>> {
+  pub async fn new(docker: Arc<Docker>) -> Result<Vec<Self>, JoinError> {
     let containers = Self::get_all(&docker).await.unwrap_or_default();
 
     let container_infos = containers.into_iter().map(|container| {
@@ -286,7 +148,7 @@ impl ContainerInfo {
       })
     });
 
-    future::join_all(container_infos).await
+    future::try_join_all(container_infos).await
   }
 
   async fn get_all(docker: &Docker) -> Option<Vec<ContainerList>> {

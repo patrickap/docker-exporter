@@ -45,7 +45,7 @@ impl Metrics {
     );
 
     registry.register(
-      "memory_bytes_total",
+      "memory_bytes",
       "memory total in bytes",
       Family::clone(&self.memory_bytes_total),
     );
@@ -57,25 +57,25 @@ impl Metrics {
     );
 
     registry.register(
-      "block_io_tx_bytes_total",
+      "block_io_tx_bytes",
       "block io written total in bytes",
       Family::clone(&self.block_io_tx_bytes_total),
     );
 
     registry.register(
-      "block_io_rx_bytes_total",
+      "block_io_rx_bytes",
       "block io read total in bytes",
       Family::clone(&self.block_io_rx_bytes_total),
     );
 
     registry.register(
-      "network_tx_bytes_total",
+      "network_tx_bytes",
       "network sent total in bytes",
       Family::clone(&self.network_tx_bytes_total),
     );
 
     registry.register(
-      "network_rx_bytes_total",
+      "network_rx_bytes",
       "network received total in bytes",
       Family::clone(&self.network_rx_bytes_total),
     );
@@ -84,5 +84,6 @@ impl Metrics {
 
 #[derive(Clone, Debug, EncodeLabelSet, Eq, Hash, PartialEq)]
 pub struct MetricsLabels {
+  pub container_id: String,
   pub container_name: String,
 }
