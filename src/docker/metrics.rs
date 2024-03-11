@@ -39,12 +39,16 @@ impl Metrics {
   }
 }
 
-pub trait MetricsRegister<R> {
-  fn register_metrics(&self, registry: &mut R);
+pub trait MetricsRegister {
+  type Registry;
+
+  fn register_metrics(&self, registry: &mut Self::Registry);
 }
 
-impl MetricsRegister<Registry> for Metrics {
-  fn register_metrics(&self, registry: &mut Registry) {
+impl MetricsRegister for Metrics {
+  type Registry = Registry;
+
+  fn register_metrics(&self, registry: &mut Self::Registry) {
     registry.register(
       "state_running_boolean",
       "state running as boolean (1 = true, 0 = false)",
@@ -101,16 +105,16 @@ impl MetricsRegister<Registry> for Metrics {
   }
 }
 
-pub trait MetricsCollector<S, M> {
-  async fn collect_metrics(&self, source: Arc<S>, metrics: Arc<M>) -> Result<(), Box<dyn Error>>;
+pub trait MetricsCollect {
+  type Collector;
+
+  async fn collect_metrics(&self, collector: Arc<Self::Collector>) -> Result<(), Box<dyn Error>>;
 }
 
-impl MetricsCollector<Docker, Self> for Metrics {
-  async fn collect_metrics(
-    &self,
-    docker: Arc<Docker>,
-    metrics: Arc<Self>,
-  ) -> Result<(), Box<dyn Error>> {
+impl MetricsCollect for Metrics {
+  type Collector = Docker;
+
+  async fn collect_metrics(&self, docker: Arc<Self::Collector>) -> Result<(), Box<dyn Error>> {
     let containers = ContainerInfo::gather(docker).await?;
 
     for container in containers {
@@ -128,7 +132,7 @@ impl MetricsCollector<Docker, Self> for Metrics {
 
       if let Some(state) = state {
         if let Some(state_running) = state.running {
-          metrics
+          self
             .state_running_boolean
             .get_or_create(&labels)
             .set(state_running as i64);
@@ -137,21 +141,21 @@ impl MetricsCollector<Docker, Self> for Metrics {
         if let Some(true) = state.running {
           if let Some(stats) = stats {
             if let Some(cpu_utilization) = stats.cpu_utilization() {
-              metrics
+              self
                 .cpu_utilization_percent
                 .get_or_create(&labels)
                 .set(cpu_utilization);
             }
 
             if let Some(memory_usage) = stats.memory_usage() {
-              metrics
+              self
                 .memory_usage_bytes
                 .get_or_create(&labels)
                 .set(memory_usage as f64);
             }
 
             if let Some(memory_total) = stats.memory_total() {
-              metrics
+              self
                 .memory_bytes_total
                 .get_or_create(&labels)
                 .inner()
@@ -159,14 +163,14 @@ impl MetricsCollector<Docker, Self> for Metrics {
             }
 
             if let Some(memory_utilization) = stats.memory_utilization() {
-              metrics
+              self
                 .memory_utilization_percent
                 .get_or_create(&labels)
                 .set(memory_utilization);
             }
 
             if let Some(block_io_tx_total) = stats.block_io_tx_total() {
-              metrics
+              self
                 .block_io_tx_bytes_total
                 .get_or_create(&labels)
                 .inner()
@@ -174,7 +178,7 @@ impl MetricsCollector<Docker, Self> for Metrics {
             }
 
             if let Some(block_io_rx_total) = stats.block_io_rx_total() {
-              metrics
+              self
                 .block_io_rx_bytes_total
                 .get_or_create(&labels)
                 .inner()
@@ -182,7 +186,7 @@ impl MetricsCollector<Docker, Self> for Metrics {
             }
 
             if let Some(network_tx_total) = stats.network_tx_total() {
-              metrics
+              self
                 .network_tx_bytes_total
                 .get_or_create(&labels)
                 .inner()
@@ -190,7 +194,7 @@ impl MetricsCollector<Docker, Self> for Metrics {
             }
 
             if let Some(network_rx_total) = stats.network_rx_total() {
-              metrics
+              self
                 .network_rx_bytes_total
                 .get_or_create(&labels)
                 .inner()

@@ -3,19 +3,19 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::metrics::MetricsCollector;
+use crate::docker::metrics::MetricsCollect;
 
 pub async fn status() -> &'static str {
   "ok"
 }
 
-pub async fn metrics<M: MetricsCollector<Docker, M>>(
+pub async fn metrics<M: MetricsCollect<Collector = Docker>>(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<M>>,
 ) -> Result<String, StatusCode> {
   metrics
-    .collect_metrics(Arc::clone(&docker), Arc::clone(&metrics))
+    .collect_metrics(Arc::clone(&docker))
     .await
     .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
 
@@ -60,8 +60,10 @@ mod tests {
     #[derive(Debug)]
     struct MockMetrics {}
 
-    impl MetricsCollector<Docker, Self> for MockMetrics {
-      async fn collect_metrics(&self, _: Arc<Docker>, _: Arc<Self>) -> Result<(), Box<dyn Error>> {
+    impl MetricsCollect for MockMetrics {
+      type Collector = Docker;
+
+      async fn collect_metrics(&self, _: Arc<Self::Collector>) -> Result<(), Box<dyn Error>> {
         Err(Box::new(std::fmt::Error {}))
       }
     }
