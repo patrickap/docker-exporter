@@ -40,7 +40,7 @@ impl Metrics {
 }
 
 pub trait MetricsRegister<R> {
-  fn register_metrics(&self, registry: &mut R) -> ();
+  fn register_metrics(&self, registry: &mut R);
 }
 
 impl MetricsRegister<Registry> for Metrics {
