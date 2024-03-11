@@ -109,7 +109,7 @@ impl MetricsCollector<Docker, Self> for Metrics {
   async fn collect_metrics(
     &self,
     docker: Arc<Docker>,
-    metrics: Arc<Metrics>,
+    metrics: Arc<Self>,
   ) -> Result<(), Box<dyn Error>> {
     let containers = ContainerInfo::gather(docker).await?;
 

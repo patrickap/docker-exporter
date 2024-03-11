@@ -61,11 +61,7 @@ mod tests {
     struct MockMetrics {}
 
     impl MetricsCollector<Docker, Self> for MockMetrics {
-      async fn collect_metrics(
-        &self,
-        _: Arc<Docker>,
-        _: Arc<MockMetrics>,
-      ) -> Result<(), Box<dyn Error>> {
+      async fn collect_metrics(&self, _: Arc<Docker>, _: Arc<Self>) -> Result<(), Box<dyn Error>> {
         Err(Box::new(std::fmt::Error {}))
       }
     }
