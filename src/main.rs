@@ -13,6 +13,7 @@ use crate::docker::metrics::Metrics;
 // TODO: check again metrics calculation, names etc.
 // TODO: http header for open metrics text?
 // TODO: tests
+// TODO: add timeout to graceful shutdown
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -37,7 +38,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
   println!("server listening on {}", listener.local_addr()?);
   axum::serve(listener, router)
     .with_graceful_shutdown(async {
-      // TODO: add timeout
       if let Ok(_) = signal::ctrl_c().await {
         println!("\nreceived signal; shutting down");
       }
