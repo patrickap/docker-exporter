@@ -6,15 +6,13 @@ use prometheus_client::{
     family::Family,
     gauge::{Atomic, Gauge},
   },
-  registry::{Metric as AnyMetric, Registry},
+  registry::Registry,
 };
-use std::{
-  error::Error,
-  sync::{
-    atomic::{AtomicI64, AtomicU64},
-    Arc,
-  },
+use std::sync::{
+  atomic::{AtomicI64, AtomicU64},
+  Arc,
 };
+use tokio::task::JoinError;
 
 use crate::docker::container::{self, Container, StatsExt};
 
@@ -146,7 +144,7 @@ impl<'a> Metrics<'a> {
     );
   }
 
-  pub async fn collect_all(&self, docker: Arc<Docker>) -> Result<(), Box<dyn Error>> {
+  pub async fn collect_all(&self, docker: Arc<Docker>) -> Result<(), JoinError> {
     let containers = container::gather_all(docker).await?;
 
     for container in containers {
