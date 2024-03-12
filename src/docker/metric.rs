@@ -6,7 +6,7 @@ use prometheus_client::{
     family::Family,
     gauge::{Atomic, Gauge},
   },
-  registry::Registry,
+  registry::{Metric as AnyMetric, Registry},
 };
 use std::sync::{
   atomic::{AtomicI64, AtomicU64},
@@ -16,14 +16,13 @@ use tokio::task::JoinError;
 
 use crate::docker::container::{self, Container, StatsExt};
 
-// TODO: what is ?Sized doing here? should i add the prometheus super metric trait here?
-pub struct Metric<'a, M> {
+pub struct Metric<'a, M: AnyMetric> {
   name: &'a str,
   help: &'a str,
   metric: M,
 }
 
-impl<'a, M> Metric<'a, M> {
+impl<'a, M: AnyMetric> Metric<'a, M> {
   pub fn new(name: &'a str, help: &'a str, metric: M) -> Self {
     Self { name, help, metric }
   }
@@ -88,60 +87,21 @@ impl<'a> Metrics<'a> {
     }
   }
 
+  fn register<M: AnyMetric + Clone>(&self, registry: &mut Registry, metric: &Metric<'a, M>) {
+    // Cloning the metric is fine and suggested by the library as it internally uses an Arc
+    registry.register(metric.name, metric.help, metric.metric.clone());
+  }
+
   pub fn register_all(&self, registry: &mut Registry) {
-    registry.register(
-      self.state_running_boolean.name,
-      self.state_running_boolean.help,
-      Family::clone(&self.state_running_boolean.metric),
-    );
-
-    registry.register(
-      self.cpu_utilization_percent.name,
-      self.cpu_utilization_percent.help,
-      Family::clone(&self.cpu_utilization_percent.metric),
-    );
-
-    registry.register(
-      self.memory_usage_bytes.name,
-      self.memory_usage_bytes.help,
-      Family::clone(&self.memory_usage_bytes.metric),
-    );
-
-    registry.register(
-      self.memory_bytes_total.name,
-      self.memory_bytes_total.help,
-      Family::clone(&self.memory_bytes_total.metric),
-    );
-
-    registry.register(
-      self.memory_utilization_percent.name,
-      self.memory_utilization_percent.help,
-      Family::clone(&self.memory_utilization_percent.metric),
-    );
-
-    registry.register(
-      self.block_io_tx_bytes_total.name,
-      self.block_io_tx_bytes_total.help,
-      Family::clone(&self.block_io_tx_bytes_total.metric),
-    );
-
-    registry.register(
-      self.block_io_rx_bytes_total.name,
-      self.block_io_rx_bytes_total.help,
-      Family::clone(&self.block_io_rx_bytes_total.metric),
-    );
-
-    registry.register(
-      self.network_tx_bytes_total.name,
-      self.network_tx_bytes_total.help,
-      Family::clone(&self.network_tx_bytes_total.metric),
-    );
-
-    registry.register(
-      self.network_rx_bytes_total.name,
-      self.network_rx_bytes_total.help,
-      Family::clone(&self.network_rx_bytes_total.metric),
-    );
+    self.register(registry, &self.state_running_boolean);
+    self.register(registry, &self.cpu_utilization_percent);
+    self.register(registry, &self.memory_usage_bytes);
+    self.register(registry, &self.memory_bytes_total);
+    self.register(registry, &self.memory_utilization_percent);
+    self.register(registry, &self.block_io_tx_bytes_total);
+    self.register(registry, &self.block_io_rx_bytes_total);
+    self.register(registry, &self.network_tx_bytes_total);
+    self.register(registry, &self.network_rx_bytes_total);
   }
 
   pub async fn collect_all(&self, docker: Arc<Docker>) -> Result<(), JoinError> {
