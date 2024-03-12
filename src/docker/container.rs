@@ -1,9 +1,8 @@
 use bollard::{
   container::{
-    InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats as ContainerStats,
-    StatsOptions as StatsContainerOptions,
+    InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats, StatsOptions,
   },
-  secret::{ContainerState, ContainerSummary as Container},
+  secret::{ContainerState, ContainerSummary},
   Docker,
 };
 use futures::{
@@ -13,15 +12,15 @@ use futures::{
 use std::sync::Arc;
 use tokio::task::JoinError;
 
-pub struct ContainerInfo {
+pub struct Container {
   pub id: Option<String>,
   pub name: Option<String>,
   pub state: Option<ContainerState>,
-  pub stats: Option<ContainerStats>,
+  pub stats: Option<Stats>,
 }
 
-impl ContainerInfo {
-  pub async fn gather(docker: Arc<Docker>) -> Result<Vec<Self>, JoinError> {
+impl Container {
+  pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Self>, JoinError> {
     let containers = Self::get_containers(&docker).await.unwrap_or_default();
 
     let infos = containers.into_iter().map(|container| {
@@ -56,7 +55,7 @@ impl ContainerInfo {
     future::try_join_all(infos).await
   }
 
-  async fn get_containers(docker: &Docker) -> Option<Vec<Container>> {
+  async fn get_containers(docker: &Docker) -> Option<Vec<ContainerSummary>> {
     docker
       .list_containers(Some(ListContainersOptions::<&str> {
         all: true,
@@ -66,7 +65,7 @@ impl ContainerInfo {
       .ok()
   }
 
-  fn get_container_name(container: &Container) -> Option<String> {
+  fn get_container_name(container: &ContainerSummary) -> Option<String> {
     container
       .names
       .as_ref()
@@ -74,7 +73,10 @@ impl ContainerInfo {
       .and_then(|mut name| Some(name.drain(1..).collect()))
   }
 
-  async fn get_container_state(docker: &Docker, container: &Container) -> Option<ContainerState> {
+  async fn get_container_state(
+    docker: &Docker,
+    container: &ContainerSummary,
+  ) -> Option<ContainerState> {
     docker
       .inspect_container(
         container.id.as_deref().unwrap_or_default(),
@@ -87,11 +89,11 @@ impl ContainerInfo {
       .and_then(|inspect| inspect.state)
   }
 
-  async fn get_container_stats(docker: &Docker, container: &Container) -> Option<ContainerStats> {
+  async fn get_container_stats(docker: &Docker, container: &ContainerSummary) -> Option<Stats> {
     docker
       .stats(
         container.id.as_deref().unwrap_or_default(),
-        Some(StatsContainerOptions {
+        Some(StatsOptions {
           stream: false,
           ..Default::default()
         }),
@@ -120,7 +122,7 @@ pub trait ContainerStatsExt {
   fn network_rx_total(&self) -> Option<u64>;
 }
 
-impl ContainerStatsExt for ContainerStats {
+impl ContainerStatsExt for Stats {
   fn cpu_delta(&self) -> Option<u64> {
     Some(self.cpu_stats.cpu_usage.total_usage - self.precpu_stats.cpu_usage.total_usage)
   }

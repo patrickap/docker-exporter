@@ -16,7 +16,7 @@ use std::{
   },
 };
 
-use crate::docker::container::{ContainerInfo, ContainerStatsExt};
+use crate::docker::container::{Container, ContainerStatsExt};
 
 #[derive(Default)]
 pub struct Metrics {
@@ -115,10 +115,10 @@ impl MetricsCollect for Metrics {
   type Collector = Docker;
 
   async fn collect_metrics(&self, collector: Arc<Self::Collector>) -> Result<(), Box<dyn Error>> {
-    let containers = ContainerInfo::gather(collector).await?;
+    let containers = Container::gather_all(collector).await?;
 
     for container in containers {
-      let ContainerInfo {
+      let Container {
         id,
         name,
         state,
