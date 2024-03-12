@@ -19,7 +19,7 @@ use std::{
 use crate::docker::container::{self, Container, StatsExt};
 
 // TODO: what is ?Sized doing here? should i add the prometheus super metric trait here?
-pub struct Metric<'a, M: ?Sized> {
+pub struct Metric<'a, M> {
   name: &'a str,
   help: &'a str,
   metric: M,
@@ -41,26 +41,6 @@ pub struct Metrics<'a> {
   pub block_io_rx_bytes_total: Metric<'a, Family<MetricsLabels, Counter<f64, AtomicU64>>>,
   pub network_tx_bytes_total: Metric<'a, Family<MetricsLabels, Counter<f64, AtomicU64>>>,
   pub network_rx_bytes_total: Metric<'a, Family<MetricsLabels, Counter<f64, AtomicU64>>>,
-}
-
-// TODO: remove, its just a test iter implementation
-fn test() {
-  let m1 = Metric::new(
-    "name",
-    "help",
-    Family::<MetricsLabels, Gauge<i64, AtomicI64>>::default(),
-  );
-
-  let m2 = Metric::new(
-    "name",
-    "help",
-    Family::<MetricsLabels, Counter<f64, AtomicU64>>::default(),
-  );
-
-  let x = Box::new(m1);
-  let y = Box::new(m2);
-
-  let z: [Box<Metric<'_, dyn AnyMetric>>; 2] = [x, y];
 }
 
 impl<'a> Metrics<'a> {
