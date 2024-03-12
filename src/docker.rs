@@ -1,5 +1,5 @@
 pub mod container;
-pub mod metrics;
+pub mod metric;
 
 use bollard::{errors::Error, Docker};
 use std::env;

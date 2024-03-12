@@ -20,7 +20,7 @@ pub struct Container {
 }
 
 pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
-  let containers = get_all(&docker).await.unwrap_or_default();
+  let containers = get_all(&docker).await.unwrap_or(Vec::with_capacity(0));
 
   let infos = containers.into_iter().map(|container| {
     let docker = Arc::clone(&docker);
@@ -75,7 +75,7 @@ fn get_name(container: &ContainerSummary) -> Option<String> {
 async fn get_state(docker: &Docker, container: &ContainerSummary) -> Option<ContainerState> {
   docker
     .inspect_container(
-      container.id.as_deref().unwrap_or_default(),
+      container.id.as_deref().unwrap_or(""),
       Some(InspectContainerOptions {
         ..Default::default()
       }),
@@ -88,7 +88,7 @@ async fn get_state(docker: &Docker, container: &ContainerSummary) -> Option<Cont
 async fn get_stats(docker: &Docker, container: &ContainerSummary) -> Option<Stats> {
   docker
     .stats(
-      container.id.as_deref().unwrap_or_default(),
+      container.id.as_deref().unwrap_or(""),
       Some(StatsOptions {
         stream: false,
         ..Default::default()
