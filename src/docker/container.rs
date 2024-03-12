@@ -19,94 +19,89 @@ pub struct Container {
   pub stats: Option<Stats>,
 }
 
-impl Container {
-  pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Self>, JoinError> {
-    let containers = Self::get_containers(&docker).await.unwrap_or_default();
+pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
+  let containers = get_all(&docker).await.unwrap_or_default();
 
-    let infos = containers.into_iter().map(|container| {
-      let docker = Arc::clone(&docker);
+  let infos = containers.into_iter().map(|container| {
+    let docker = Arc::clone(&docker);
 
-      tokio::spawn(async move {
-        let container = Arc::new(container);
+    tokio::spawn(async move {
+      let container = Arc::new(container);
 
-        let state = {
-          let docker = Arc::clone(&docker);
-          let container = Arc::clone(&container);
-          tokio::spawn(async move { Self::get_container_state(&docker, &container).await })
-        };
+      let state = {
+        let docker = Arc::clone(&docker);
+        let container = Arc::clone(&container);
+        tokio::spawn(async move { get_state(&docker, &container).await })
+      };
 
-        let stats = {
-          let docker = Arc::clone(&docker);
-          let container = Arc::clone(&container);
-          tokio::spawn(async move { Self::get_container_stats(&docker, &container).await })
-        };
+      let stats = {
+        let docker = Arc::clone(&docker);
+        let container = Arc::clone(&container);
+        tokio::spawn(async move { get_stats(&docker, &container).await })
+      };
 
-        let (state, stats) = tokio::join!(state, stats);
+      let (state, stats) = tokio::join!(state, stats);
 
-        Self {
-          id: container.id.as_ref().map(|id| String::from(id)),
-          name: Self::get_container_name(&container),
-          state: state.ok().flatten(),
-          stats: stats.ok().flatten(),
-        }
-      })
-    });
+      Container {
+        id: container.id.as_ref().map(|id| String::from(id)),
+        name: get_name(&container),
+        state: state.ok().flatten(),
+        stats: stats.ok().flatten(),
+      }
+    })
+  });
 
-    future::try_join_all(infos).await
-  }
-
-  async fn get_containers(docker: &Docker) -> Option<Vec<ContainerSummary>> {
-    docker
-      .list_containers(Some(ListContainersOptions::<&str> {
-        all: true,
-        ..Default::default()
-      }))
-      .await
-      .ok()
-  }
-
-  fn get_container_name(container: &ContainerSummary) -> Option<String> {
-    container
-      .names
-      .as_ref()
-      .and_then(|names| Some(names.join(";")))
-      .and_then(|mut name| Some(name.drain(1..).collect()))
-  }
-
-  async fn get_container_state(
-    docker: &Docker,
-    container: &ContainerSummary,
-  ) -> Option<ContainerState> {
-    docker
-      .inspect_container(
-        container.id.as_deref().unwrap_or_default(),
-        Some(InspectContainerOptions {
-          ..Default::default()
-        }),
-      )
-      .await
-      .ok()
-      .and_then(|inspect| inspect.state)
-  }
-
-  async fn get_container_stats(docker: &Docker, container: &ContainerSummary) -> Option<Stats> {
-    docker
-      .stats(
-        container.id.as_deref().unwrap_or_default(),
-        Some(StatsOptions {
-          stream: false,
-          ..Default::default()
-        }),
-      )
-      .take(1)
-      .try_next()
-      .await
-      .ok()
-      .flatten()
-  }
+  future::try_join_all(infos).await
 }
 
-pub trait ContainerStatsExt {
+async fn get_all(docker: &Docker) -> Option<Vec<ContainerSummary>> {
+  docker
+    .list_containers(Some(ListContainersOptions::<&str> {
+      all: true,
+      ..Default::default()
+    }))
+    .await
+    .ok()
+}
+
+fn get_name(container: &ContainerSummary) -> Option<String> {
+  container
+    .names
+    .as_ref()
+    .and_then(|names| Some(names.join(";")))
+    .and_then(|mut name| Some(name.drain(1..).collect()))
+}
+
+async fn get_state(docker: &Docker, container: &ContainerSummary) -> Option<ContainerState> {
+  docker
+    .inspect_container(
+      container.id.as_deref().unwrap_or_default(),
+      Some(InspectContainerOptions {
+        ..Default::default()
+      }),
+    )
+    .await
+    .ok()
+    .and_then(|inspect| inspect.state)
+}
+
+async fn get_stats(docker: &Docker, container: &ContainerSummary) -> Option<Stats> {
+  docker
+    .stats(
+      container.id.as_deref().unwrap_or_default(),
+      Some(StatsOptions {
+        stream: false,
+        ..Default::default()
+      }),
+    )
+    .take(1)
+    .try_next()
+    .await
+    .ok()
+    .flatten()
+}
+
+pub trait StatsExt {
   fn cpu_delta(&self) -> Option<u64>;
   fn cpu_delta_system(&self) -> Option<u64>;
   fn cpu_count(&self) -> Option<u64>;
@@ -122,7 +117,7 @@ pub trait ContainerStatsExt {
   fn network_rx_total(&self) -> Option<u64>;
 }
 
-impl ContainerStatsExt for Stats {
+impl StatsExt for Stats {
   fn cpu_delta(&self) -> Option<u64> {
     Some(self.cpu_stats.cpu_usage.total_usage - self.precpu_stats.cpu_usage.total_usage)
   }
