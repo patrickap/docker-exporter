@@ -62,10 +62,10 @@ mod tests {
     )
     .await;
 
-    let expected = "# HELP cpu_utilization_percent cpu utilization in percent.\n
-                    # TYPE cpu_utilization_percent gauge\n
-                    cpu_utilization_percent{container_id=\"id_test\",container_name=\"name_test\"} 123.0\n
-                    # EOF";
+    let expected = "# HELP cpu_utilization_percent cpu utilization in percent.\n".to_owned()
+      + "# TYPE cpu_utilization_percent gauge\n"
+      + "cpu_utilization_percent{container_id=\"id_test\",container_name=\"name_test\"} 123.0\n"
+      + "# EOF\n";
 
     assert_eq!(response.is_ok(), true);
     assert_eq!(response, Ok(String::from(expected)));
