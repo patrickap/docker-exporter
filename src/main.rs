@@ -1,13 +1,13 @@
-mod constants;
+mod constant;
 mod docker;
-mod routes;
+mod route;
 
 use axum::{routing, Extension, Router};
 use prometheus_client::registry::Registry;
 use std::{error::Error, sync::Arc};
 use tokio::{net::TcpListener, signal};
 
-use crate::constants::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS};
+use crate::constant::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS};
 use crate::docker::metric;
 
 // TODO: check again metrics calculation, names etc.
@@ -37,8 +37,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
-    .route("/status", routing::get(routes::status))
-    .route("/metrics", routing::get(routes::metrics))
+    .route("/status", routing::get(route::status))
+    .route("/metrics", routing::get(route::metrics))
     .layer(Extension(Arc::new(registry)))
     .layer(Extension(Arc::new(docker)))
     .layer(Extension(Arc::new(metrics)));

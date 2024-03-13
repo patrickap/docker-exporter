@@ -4,7 +4,7 @@ pub mod metric;
 use bollard::{errors::Error, Docker};
 use std::env;
 
-use crate::constants::{
+use crate::constant::{
   DOCKER_API_VERSION, DOCKER_CONNECTION_TIMEOUT, DOCKER_HOST_ENV, DOCKER_SOCKET_PATH,
 };
 
