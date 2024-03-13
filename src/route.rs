@@ -3,8 +3,7 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::DockerExt;
-use crate::prometheus::Metrics;
+use crate::collector::{DockerExt, Metrics};
 
 pub async fn status() -> &'static str {
   "ok"
@@ -32,8 +31,7 @@ pub async fn metrics<'a>(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::docker::DockerExt;
-  use crate::prometheus::MetricsLabels;
+  use crate::collector::{DockerExt, MetricsLabels};
 
   #[tokio::test]
   async fn it_returns_status() {
