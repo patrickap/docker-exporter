@@ -87,10 +87,7 @@ pub fn init<'a>() -> Metrics<'a> {
 }
 
 pub fn update<'a>(metrics: &Metrics<'a>, container: &Container) {
-  let Container {
-    ref state,
-    ref stats,
-  } = container;
+  let Container { state, stats } = container;
 
   let labels = match (container.get_id(), container.get_name()) {
     (Some(id), Some(name)) => Some(MetricsLabels {
