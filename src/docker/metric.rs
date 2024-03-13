@@ -87,9 +87,14 @@ pub fn init<'a>() -> Metrics<'a> {
 }
 
 pub fn update<'a>(metrics: &Metrics<'a>, container: &Container) {
-  let Container { state, stats } = container;
+  let Container {
+    id,
+    name,
+    state,
+    stats,
+  } = container;
 
-  let labels = match (container.get_id(), container.get_name()) {
+  let labels = match (id, name) {
     (Some(id), Some(name)) => Some(MetricsLabels {
       container_id: String::from(id),
       container_name: String::from(name),
