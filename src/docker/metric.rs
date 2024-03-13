@@ -7,10 +7,7 @@ use prometheus_client::{
   },
   registry::{self, Registry},
 };
-use std::sync::{
-  atomic::{AtomicI64, AtomicU64},
-  Arc,
-};
+use std::sync::atomic::{AtomicI64, AtomicU64};
 
 use crate::docker::container::{Container, StatsExt};
 
