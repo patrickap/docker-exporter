@@ -16,11 +16,11 @@ pub async fn metrics<'a>(
   Extension(metrics): Extension<Arc<Metrics<'a>>>,
 ) -> Result<String, StatusCode> {
   docker
-    .retrieve_metrics()
+    .collect_metrics()
     .await
     .unwrap_or_default()
     .iter()
-    .for_each(|container| metrics.update(&container));
+    .for_each(|metric| metrics.aggregate_metric(&metric));
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
