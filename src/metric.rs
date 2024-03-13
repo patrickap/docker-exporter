@@ -9,7 +9,7 @@ use prometheus_client::{
 };
 use std::sync::atomic::{AtomicI64, AtomicU64};
 
-use crate::docker::{container::Container, StatsExt};
+use crate::docker::{ContainerMetric, StatsExt};
 
 pub struct Metric<'a, M: registry::Metric + Clone> {
   pub name: &'a str,
@@ -45,8 +45,8 @@ impl<'a> Metrics<'a> {
     Default::default()
   }
 
-  pub fn update(&self, container: &Container) {
-    let Container {
+  pub fn update(&self, container: &ContainerMetric) {
+    let ContainerMetric {
       id,
       name,
       state,

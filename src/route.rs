@@ -3,7 +3,8 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::{container::Containers, metric::Metrics};
+use crate::docker::DockerExt;
+use crate::metric::Metrics;
 
 pub async fn status() -> &'static str {
   "ok"
@@ -14,7 +15,8 @@ pub async fn metrics<'a>(
   Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<Metrics<'a>>>,
 ) -> Result<String, StatusCode> {
-  Containers::retrieve(docker)
+  docker
+    .retrieve_metrics()
     .await
     .unwrap_or_default()
     .iter()
@@ -30,7 +32,8 @@ pub async fn metrics<'a>(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::docker::{metric::MetricsLabels, DockerExt};
+  use crate::docker::DockerExt;
+  use crate::metric::MetricsLabels;
 
   #[tokio::test]
   async fn it_returns_status() {

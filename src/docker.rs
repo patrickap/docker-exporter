@@ -1,6 +1,3 @@
-pub mod container;
-pub mod metric;
-
 use bollard::{
   container::{
     InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats, StatsOptions,
@@ -9,15 +6,26 @@ use bollard::{
   secret::{ContainerState, ContainerSummary},
   Docker,
 };
-use futures::stream::{StreamExt, TryStreamExt};
-use std::env;
+use futures::{
+  future,
+  stream::{StreamExt, TryStreamExt},
+};
+use std::{env, sync::Arc};
 
 use crate::constant::{
   DOCKER_API_VERSION, DOCKER_CONNECTION_TIMEOUT, DOCKER_HOST_ENV, DOCKER_SOCKET_PATH,
 };
 
+pub struct ContainerMetric {
+  pub id: Option<String>,
+  pub name: Option<String>,
+  pub state: Option<ContainerState>,
+  pub stats: Option<Stats>,
+}
+
 pub trait DockerExt {
   fn try_connect() -> Result<Docker, Error>;
+  async fn retrieve_metrics(self: Arc<Self>) -> Option<Vec<ContainerMetric>>;
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
   async fn inspect_state(&self, container_name: &str) -> Option<ContainerState>;
   async fn stats_once(&self, container_name: &str) -> Option<Stats>;
@@ -37,6 +45,42 @@ impl DockerExt for Docker {
         DOCKER_API_VERSION,
       ),
     }
+  }
+
+  async fn retrieve_metrics(self: Arc<Self>) -> Option<Vec<ContainerMetric>> {
+    let containers = self.list_containers_all().await.unwrap_or_default();
+
+    let result = containers.into_iter().map(|container| {
+      let _self = Arc::clone(&self);
+
+      tokio::spawn(async move {
+        let container = Arc::new(container);
+
+        let state = {
+          let _self = Arc::clone(&_self);
+          let container = Arc::clone(&container);
+          tokio::spawn(async move { _self.inspect_state(&container.id.as_deref()?).await })
+        };
+
+        let stats = {
+          let _self = Arc::clone(&_self);
+          let container = Arc::clone(&container);
+          tokio::spawn(async move { _self.stats_once(&container.id.as_deref()?).await })
+        };
+
+        let (state, stats) = tokio::join!(state, stats);
+        let (state, stats) = (state.ok().flatten(), stats.ok().flatten());
+
+        ContainerMetric {
+          id: stats.as_ref().map(|s| String::from(&s.id)),
+          name: stats.as_ref().map(|s| String::from(&s.name[1..])),
+          state,
+          stats,
+        }
+      })
+    });
+
+    future::try_join_all(result).await.ok()
   }
 
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>> {
