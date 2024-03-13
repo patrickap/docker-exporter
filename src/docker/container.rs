@@ -13,18 +13,10 @@ use std::sync::Arc;
 use tokio::task::JoinError;
 
 pub struct Container {
+  pub id: Option<String>,
+  pub name: Option<String>,
   pub state: Option<ContainerState>,
   pub stats: Option<Stats>,
-}
-
-impl Container {
-  pub fn get_id(&self) -> Option<&str> {
-    Some(&self.stats.as_ref()?.id)
-  }
-
-  pub fn get_name(&self) -> Option<&str> {
-    Some(&self.stats.as_ref()?.name[1..])
-  }
 }
 
 pub async fn collect(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
@@ -49,10 +41,13 @@ pub async fn collect(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
       };
 
       let (state, stats) = tokio::join!(state, stats);
+      let (state, stats) = (state.ok().flatten(), stats.ok().flatten());
 
       Container {
-        state: state.ok().flatten(),
-        stats: stats.ok().flatten(),
+        id: stats.as_ref().map(|s| String::from(&s.id)),
+        name: stats.as_ref().map(|s| String::from(&s.name[1..])),
+        state,
+        stats,
       }
     })
   });
