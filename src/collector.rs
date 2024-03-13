@@ -31,7 +31,7 @@ use crate::constant::{
   DOCKER_API_VERSION, DOCKER_CONNECTION_TIMEOUT, DOCKER_HOST_ENV, DOCKER_SOCKET_PATH,
 };
 
-pub struct RawMetric {
+pub struct ContainerMetric {
   pub id: Option<String>,
   pub name: Option<String>,
   pub state: Option<ContainerState>,
@@ -40,7 +40,7 @@ pub struct RawMetric {
 
 pub trait DockerExt {
   fn try_connect() -> Result<Docker, Error>;
-  async fn collect_metrics(self: Arc<Self>) -> Option<Vec<RawMetric>>;
+  async fn collect_metrics(self: Arc<Self>) -> Option<Vec<ContainerMetric>>;
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
   async fn inspect_state(&self, container_name: &str) -> Option<ContainerState>;
   async fn stats_once(&self, container_name: &str) -> Option<Stats>;
@@ -63,7 +63,7 @@ impl DockerExt for Docker {
     }
   }
 
-  async fn collect_metrics(self: Arc<Self>) -> Option<Vec<RawMetric>> {
+  async fn collect_metrics(self: Arc<Self>) -> Option<Vec<ContainerMetric>> {
     let containers = self.list_containers_all().await.unwrap_or_default();
 
     let result = containers.into_iter().map(|container| {
@@ -87,7 +87,7 @@ impl DockerExt for Docker {
         let (state, stats) = tokio::join!(state, stats);
         let (state, stats) = (state.ok().flatten(), stats.ok().flatten());
 
-        RawMetric {
+        ContainerMetric {
           id: stats.as_ref().map(|s| String::from(&s.id)),
           name: stats.as_ref().map(|s| String::from(&s.name[1..])),
           state,
@@ -271,8 +271,8 @@ impl<'a> Metrics<'a> {
     Default::default()
   }
 
-  pub fn aggregate_metric(&self, metric: &RawMetric) {
-    let RawMetric {
+  pub fn aggregate_metric(&self, metric: &ContainerMetric) {
+    let ContainerMetric {
       id,
       name,
       state,
