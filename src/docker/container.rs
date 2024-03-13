@@ -1,16 +1,13 @@
 use bollard::{
-  container::{
-    InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats, StatsOptions,
-  },
-  secret::{ContainerState, ContainerSummary},
+  container::{MemoryStatsStats, Stats},
+  secret::ContainerState,
   Docker,
 };
-use futures::{
-  future,
-  stream::{StreamExt, TryStreamExt},
-};
+use futures::future;
 use std::sync::Arc;
 use tokio::task::JoinError;
+
+use crate::docker::DockerExt;
 
 pub struct Container {
   pub id: Option<String>,
@@ -20,24 +17,24 @@ pub struct Container {
 }
 
 pub async fn retrieve(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
-  let summaries = get_summary(&docker).await.unwrap_or_default();
+  let containers = docker.list_containers_all().await.unwrap_or_default();
 
-  let result = summaries.into_iter().map(|summary| {
+  let result = containers.into_iter().map(|container| {
     let docker = Arc::clone(&docker);
 
     tokio::spawn(async move {
-      let summary = Arc::new(summary);
+      let container = Arc::new(container);
 
       let state = {
         let docker = Arc::clone(&docker);
-        let summary = Arc::clone(&summary);
-        tokio::spawn(async move { get_state(&docker, &summary.id.as_deref()?).await })
+        let container = Arc::clone(&container);
+        tokio::spawn(async move { docker.inspect_state(&container.id.as_deref()?).await })
       };
 
       let stats = {
         let docker = Arc::clone(&docker);
-        let summary = Arc::clone(&summary);
-        tokio::spawn(async move { get_stats(&docker, &summary.id.as_deref()?).await })
+        let container = Arc::clone(&container);
+        tokio::spawn(async move { docker.stats_once(&container.id.as_deref()?).await })
       };
 
       let (state, stats) = tokio::join!(state, stats);
@@ -53,45 +50,6 @@ pub async fn retrieve(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> 
   });
 
   future::try_join_all(result).await
-}
-
-async fn get_summary(docker: &Docker) -> Option<Vec<ContainerSummary>> {
-  docker
-    .list_containers(Some(ListContainersOptions::<&str> {
-      all: true,
-      ..Default::default()
-    }))
-    .await
-    .ok()
-}
-
-async fn get_state(docker: &Docker, id: &str) -> Option<ContainerState> {
-  docker
-    .inspect_container(
-      id,
-      Some(InspectContainerOptions {
-        ..Default::default()
-      }),
-    )
-    .await
-    .ok()
-    .and_then(|inspect| inspect.state)
-}
-
-async fn get_stats(docker: &Docker, id: &str) -> Option<Stats> {
-  docker
-    .stats(
-      id,
-      Some(StatsOptions {
-        stream: false,
-        ..Default::default()
-      }),
-    )
-    .take(1)
-    .try_next()
-    .await
-    .ok()
-    .flatten()
 }
 
 pub trait StatsExt {

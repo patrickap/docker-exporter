@@ -33,7 +33,7 @@ pub async fn metrics<'a>(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::docker::{self, metric::MetricsLabels};
+  use crate::docker::{metric::MetricsLabels, DockerExt};
 
   #[tokio::test]
   async fn it_returns_status() {
@@ -44,7 +44,7 @@ mod tests {
   #[tokio::test]
   async fn it_returns_metrics() {
     let mut registry = Registry::from(Default::default());
-    let docker = docker::connect_mock().unwrap();
+    let docker = Docker::try_connect_mock().unwrap();
     let metrics = metric::init();
 
     metrics.cpu_utilization_percent.register(&mut registry);
