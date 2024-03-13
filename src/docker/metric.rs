@@ -17,9 +17,9 @@ use tokio::task::JoinError;
 use crate::docker::container::{self, Container, StatsExt};
 
 pub struct Metric<'a, M: registry::Metric + Clone> {
-  name: &'a str,
-  help: &'a str,
-  metric: M,
+  pub name: &'a str,
+  pub help: &'a str,
+  pub metric: M,
 }
 
 impl<'a, M: registry::Metric + Clone> Metric<'a, M> {

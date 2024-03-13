@@ -25,60 +25,47 @@ pub async fn metrics<'a>(
   }
 }
 
-// #[cfg(test)]
-// mod tests {
-//   use super::*;
-//   use crate::docker::metric::Metrics;
-//   use std::error::Error;
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::docker::{self, metric::MetricsLabels};
 
-//   #[tokio::test]
-//   async fn it_returns_status() {
-//     let result = status().await;
-//     assert_eq!(result, "ok");
-//   }
+  #[tokio::test]
+  async fn it_returns_status() {
+    let response = status().await;
+    assert_eq!(response, "ok");
+  }
 
-//   #[tokio::test]
-//   async fn it_returns_metrics_ok() {
-//     let r = Registry::from(Default::default());
-//     let d = Docker::connect_with_socket_defaults().unwrap();
-//     let m = Metrics::new();
+  #[tokio::test]
+  async fn it_returns_metrics() {
+    let mut registry = Registry::from(Default::default());
+    let docker = docker::connect().unwrap();
+    let metrics = metric::init();
 
-//     let result = metrics(
-//       Extension(Arc::new(r)),
-//       Extension(Arc::new(d)),
-//       Extension(Arc::new(m)),
-//     )
-//     .await;
+    metrics.cpu_utilization_percent.register(&mut registry);
 
-//     assert_eq!(result.is_ok(), true);
-//     assert_eq!(result, Ok(String::from("# EOF\n")));
-//   }
+    metrics
+      .cpu_utilization_percent
+      .metric
+      .get_or_create(&MetricsLabels {
+        container_id: String::from("id_test"),
+        container_name: String::from("name_test"),
+      })
+      .set(123.0);
 
-//   #[tokio::test]
-//   async fn it_returns_metrics_err() {
-//     #[derive(Debug)]
-//     struct MockMetrics {}
+    let response = super::metrics(
+      Extension(Arc::new(registry)),
+      Extension(Arc::new(docker)),
+      Extension(Arc::new(metrics)),
+    )
+    .await;
 
-//     impl MetricsCollect for MockMetrics {
-//       type Collector = Docker;
+    let expected = "# HELP cpu_utilization_percent cpu utilization in percent.\n
+                    # TYPE cpu_utilization_percent gauge\n
+                    cpu_utilization_percent{container_id=\"id_test\",container_name=\"name_test\"} 123.0\n
+                    # EOF";
 
-//       async fn collect_metrics(&self, _: Arc<Self::Collector>) -> Result<(), Box<dyn Error>> {
-//         Err(Box::new(std::fmt::Error {}))
-//       }
-//     }
-
-//     let d = Docker::connect_with_socket_defaults().unwrap();
-//     let r = Registry::from(Default::default());
-//     let m = MockMetrics {};
-
-//     let result = metrics(
-//       Extension(Arc::new(r)),
-//       Extension(Arc::new(d)),
-//       Extension(Arc::new(m)),
-//     )
-//     .await;
-
-//     assert_eq!(result.is_err(), true);
-//     assert_eq!(result, Err(StatusCode::INTERNAL_SERVER_ERROR));
-//   }
-// }
+    assert_eq!(response.is_ok(), true);
+    assert_eq!(response, Ok(String::from(expected)));
+  }
+}
