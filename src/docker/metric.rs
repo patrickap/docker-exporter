@@ -73,7 +73,7 @@ impl<'a> Metrics<'a> {
 
       if let Some(true) = state.running {
         if let Some(stats) = stats {
-          if let Some(cpu_utilization) = stats.get_cpu_utilization() {
+          if let Some(cpu_utilization) = stats.cpu_utilization() {
             self
               .cpu_utilization_percent
               .metric
@@ -81,7 +81,7 @@ impl<'a> Metrics<'a> {
               .set(cpu_utilization);
           }
 
-          if let Some(memory_usage) = stats.get_memory_usage() {
+          if let Some(memory_usage) = stats.memory_usage() {
             self
               .memory_usage_bytes
               .metric
@@ -89,7 +89,7 @@ impl<'a> Metrics<'a> {
               .set(memory_usage as f64);
           }
 
-          if let Some(memory_total) = stats.get_memory_total() {
+          if let Some(memory_total) = stats.memory_total() {
             self
               .memory_bytes_total
               .metric
@@ -98,7 +98,7 @@ impl<'a> Metrics<'a> {
               .set(memory_total as f64);
           }
 
-          if let Some(memory_utilization) = stats.get_memory_utilization() {
+          if let Some(memory_utilization) = stats.memory_utilization() {
             self
               .memory_utilization_percent
               .metric
@@ -106,7 +106,7 @@ impl<'a> Metrics<'a> {
               .set(memory_utilization);
           }
 
-          if let Some(block_io_tx_total) = stats.get_block_io_tx_total() {
+          if let Some(block_io_tx_total) = stats.block_io_tx_total() {
             self
               .block_io_tx_bytes_total
               .metric
@@ -115,7 +115,7 @@ impl<'a> Metrics<'a> {
               .set(block_io_tx_total as f64);
           }
 
-          if let Some(block_io_rx_total) = stats.get_block_io_rx_total() {
+          if let Some(block_io_rx_total) = stats.block_io_rx_total() {
             self
               .block_io_rx_bytes_total
               .metric
@@ -124,7 +124,7 @@ impl<'a> Metrics<'a> {
               .set(block_io_rx_total as f64);
           }
 
-          if let Some(network_tx_total) = stats.get_network_tx_total() {
+          if let Some(network_tx_total) = stats.network_tx_total() {
             self
               .network_tx_bytes_total
               .metric
@@ -133,7 +133,7 @@ impl<'a> Metrics<'a> {
               .set(network_tx_total as f64);
           }
 
-          if let Some(network_rx_total) = stats.get_network_rx_total() {
+          if let Some(network_rx_total) = stats.network_rx_total() {
             self
               .network_rx_bytes_total
               .metric
