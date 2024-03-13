@@ -19,6 +19,21 @@ pub struct Container {
   pub stats: Option<Stats>,
 }
 
+// TODO:
+// impl Container {
+//   fn get_id(&self) -> Option<&str> {
+//     self.id.as_deref()
+//   }
+
+//   fn get_name(&self) {
+//     self
+//       .names
+//       .as_ref()
+//       .and_then(|names| Some(names.join(";")))
+//       .and_then(|mut name| Some(name.drain(1..).collect()))
+//   }
+// }
+
 pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
   let containers = get_all(&docker).await.unwrap_or(Vec::with_capacity(0));
 
