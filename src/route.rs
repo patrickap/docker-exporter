@@ -19,6 +19,7 @@ pub async fn metrics<'a>(
 ) -> Result<String, StatusCode> {
   let containers = container::collect(docker).await.unwrap_or_default();
   metric::update(Arc::clone(&metrics), containers);
+
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
     Ok(_) => Ok(buffer),
