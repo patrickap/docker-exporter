@@ -17,8 +17,11 @@ pub async fn metrics<'a>(
   Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<Metrics<'a>>>,
 ) -> Result<String, StatusCode> {
-  let containers = container::collect(docker).await.unwrap_or_default();
-  metric::update(Arc::clone(&metrics), containers);
+  container::collect(docker)
+    .await
+    .unwrap_or_default()
+    .iter()
+    .for_each(|container| metric::update(&metrics, &container));
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
