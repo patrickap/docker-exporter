@@ -4,7 +4,7 @@ use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
 use crate::docker::DockerExt;
-use crate::metric::Metrics;
+use crate::prometheus::Metrics;
 
 pub async fn status() -> &'static str {
   "ok"
@@ -33,7 +33,7 @@ pub async fn metrics<'a>(
 mod tests {
   use super::*;
   use crate::docker::DockerExt;
-  use crate::metric::MetricsLabels;
+  use crate::prometheus::MetricsLabels;
 
   #[tokio::test]
   async fn it_returns_status() {

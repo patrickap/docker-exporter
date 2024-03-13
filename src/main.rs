@@ -1,6 +1,6 @@
 mod constant;
 mod docker;
-mod metric;
+mod prometheus;
 mod route;
 
 use axum::{routing, Extension, Router};
@@ -11,7 +11,7 @@ use tokio::{net::TcpListener, signal};
 
 use crate::constant::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS};
 use crate::docker::DockerExt;
-use crate::metric::Metrics;
+use crate::prometheus::Metrics;
 
 // TODO: check again metrics calculation, names etc.
 // TODO: http header for open metrics text?
