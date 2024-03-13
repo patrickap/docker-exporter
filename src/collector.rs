@@ -49,6 +49,17 @@ pub trait DockerExt {
 }
 
 // TODO: extension trait vs custom impl ?!
+// struct DockerCollector<'a> {
+//   docker: Docker,
+//   metrics: Metrics<'a>,
+// }
+
+// impl<'a> DockerCollector<'a> {
+//   fn new(docker: Docker, metrics: Metrics<'a>) -> Self {
+//     Self { docker, metrics }
+//   }
+// }
+
 impl DockerExt for Docker {
   fn try_connect() -> Result<Docker, Error> {
     match env::var(DOCKER_HOST_ENV) {
