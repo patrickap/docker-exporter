@@ -14,7 +14,7 @@ pub async fn metrics<'a>(
   Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<Metrics<'a>>>,
 ) -> Result<String, StatusCode> {
-  metric::collect_all(Arc::clone(&docker), Arc::clone(&metrics))
+  metric::collect(Arc::clone(&docker), Arc::clone(&metrics))
     .await
     .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
 

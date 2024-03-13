@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     err
   })?;
 
-  let metrics = metric::init_all();
+  let metrics = metric::init();
   metrics.state_running_boolean.register(&mut registry);
   metrics.cpu_utilization_percent.register(&mut registry);
   metrics.memory_usage_bytes.register(&mut registry);

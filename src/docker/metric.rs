@@ -45,7 +45,7 @@ pub struct Metrics<'a> {
   pub network_rx_bytes_total: Metric<'a, Family<MetricsLabels, Counter<f64, AtomicU64>>>,
 }
 
-pub fn init_all<'a>() -> Metrics<'a> {
+pub fn init<'a>() -> Metrics<'a> {
   Metrics {
     state_running_boolean: Metric::new(
       "state_running_boolean",
@@ -91,11 +91,8 @@ pub fn init_all<'a>() -> Metrics<'a> {
   }
 }
 
-pub async fn collect_all<'a>(
-  docker: Arc<Docker>,
-  metrics: Arc<Metrics<'a>>,
-) -> Result<(), JoinError> {
-  let containers = container::gather_all(docker).await?;
+pub async fn collect<'a>(docker: Arc<Docker>, metrics: Arc<Metrics<'a>>) -> Result<(), JoinError> {
+  let containers = container::gather(docker).await?;
 
   for container in containers {
     let Container {

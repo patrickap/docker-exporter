@@ -27,25 +27,25 @@ impl Container {
   }
 }
 
-pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
-  let containers = get_all(&docker).await.unwrap_or_default();
+pub async fn gather(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
+  let summaries = get_summary(&docker).await.unwrap_or_default();
 
-  let result = containers.into_iter().map(|container| {
+  let result = summaries.into_iter().map(|summary| {
     let docker = Arc::clone(&docker);
 
     tokio::spawn(async move {
-      let container = Arc::new(container);
+      let summary = Arc::new(summary);
 
       let state = {
         let docker = Arc::clone(&docker);
-        let container = Arc::clone(&container);
-        tokio::spawn(async move { get_state(&docker, &container.id.as_deref()?).await })
+        let summary = Arc::clone(&summary);
+        tokio::spawn(async move { get_state(&docker, &summary.id.as_deref()?).await })
       };
 
       let stats = {
         let docker = Arc::clone(&docker);
-        let container = Arc::clone(&container);
-        tokio::spawn(async move { get_stats(&docker, &container.id.as_deref()?).await })
+        let summary = Arc::clone(&summary);
+        tokio::spawn(async move { get_stats(&docker, &summary.id.as_deref()?).await })
       };
 
       let (state, stats) = tokio::join!(state, stats);
@@ -60,7 +60,7 @@ pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError
   future::try_join_all(result).await
 }
 
-async fn get_all(docker: &Docker) -> Option<Vec<ContainerSummary>> {
+async fn get_summary(docker: &Docker) -> Option<Vec<ContainerSummary>> {
   docker
     .list_containers(Some(ListContainersOptions::<&str> {
       all: true,
