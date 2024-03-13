@@ -99,15 +99,13 @@ pub async fn collect_all<'a>(
 
   for container in containers {
     let Container {
-      id,
-      name,
-      state,
-      stats,
+      ref state,
+      ref stats,
     } = container;
 
     let labels = MetricsLabels {
-      container_id: id.unwrap_or(String::new()),
-      container_name: name.unwrap_or(String::new()),
+      container_id: String::from(container.get_id().unwrap_or("")),
+      container_name: String::from(container.get_name().unwrap_or("")),
     };
 
     if let Some(state) = state {
@@ -121,7 +119,7 @@ pub async fn collect_all<'a>(
 
       if let Some(true) = state.running {
         if let Some(stats) = stats {
-          if let Some(cpu_utilization) = stats.cpu_utilization() {
+          if let Some(cpu_utilization) = stats.get_cpu_utilization() {
             metrics
               .cpu_utilization_percent
               .metric
@@ -129,7 +127,7 @@ pub async fn collect_all<'a>(
               .set(cpu_utilization);
           }
 
-          if let Some(memory_usage) = stats.memory_usage() {
+          if let Some(memory_usage) = stats.get_memory_usage() {
             metrics
               .memory_usage_bytes
               .metric
@@ -137,7 +135,7 @@ pub async fn collect_all<'a>(
               .set(memory_usage as f64);
           }
 
-          if let Some(memory_total) = stats.memory_total() {
+          if let Some(memory_total) = stats.get_memory_total() {
             metrics
               .memory_bytes_total
               .metric
@@ -146,7 +144,7 @@ pub async fn collect_all<'a>(
               .set(memory_total as f64);
           }
 
-          if let Some(memory_utilization) = stats.memory_utilization() {
+          if let Some(memory_utilization) = stats.get_memory_utilization() {
             metrics
               .memory_utilization_percent
               .metric
@@ -154,7 +152,7 @@ pub async fn collect_all<'a>(
               .set(memory_utilization);
           }
 
-          if let Some(block_io_tx_total) = stats.block_io_tx_total() {
+          if let Some(block_io_tx_total) = stats.get_block_io_tx_total() {
             metrics
               .block_io_tx_bytes_total
               .metric
@@ -163,7 +161,7 @@ pub async fn collect_all<'a>(
               .set(block_io_tx_total as f64);
           }
 
-          if let Some(block_io_rx_total) = stats.block_io_rx_total() {
+          if let Some(block_io_rx_total) = stats.get_block_io_rx_total() {
             metrics
               .block_io_rx_bytes_total
               .metric
@@ -172,7 +170,7 @@ pub async fn collect_all<'a>(
               .set(block_io_rx_total as f64);
           }
 
-          if let Some(network_tx_total) = stats.network_tx_total() {
+          if let Some(network_tx_total) = stats.get_network_tx_total() {
             metrics
               .network_tx_bytes_total
               .metric
@@ -181,7 +179,7 @@ pub async fn collect_all<'a>(
               .set(network_tx_total as f64);
           }
 
-          if let Some(network_rx_total) = stats.network_rx_total() {
+          if let Some(network_rx_total) = stats.get_network_rx_total() {
             metrics
               .network_rx_bytes_total
               .metric
