@@ -3,7 +3,10 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::docker::metric::{self, Metrics};
+use crate::docker::{
+  container,
+  metric::{self, Metrics},
+};
 
 pub async fn status() -> &'static str {
   "ok"
@@ -14,9 +17,8 @@ pub async fn metrics<'a>(
   Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<Metrics<'a>>>,
 ) -> Result<String, StatusCode> {
-  metric::collect(Arc::clone(&docker), Arc::clone(&metrics))
-    .await
-    .or(Err(StatusCode::INTERNAL_SERVER_ERROR))?;
+  let containers = container::collect(docker).await.unwrap_or_default();
+  metric::update(Arc::clone(&metrics), containers);
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {

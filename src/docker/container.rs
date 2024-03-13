@@ -27,7 +27,7 @@ impl Container {
   }
 }
 
-pub async fn gather(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
+pub async fn collect(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
   let summaries = get_summary(&docker).await.unwrap_or_default();
 
   let result = summaries.into_iter().map(|summary| {

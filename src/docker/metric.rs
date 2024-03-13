@@ -1,4 +1,3 @@
-use bollard::Docker;
 use prometheus_client::{
   encoding::EncodeLabelSet,
   metrics::{
@@ -12,9 +11,8 @@ use std::sync::{
   atomic::{AtomicI64, AtomicU64},
   Arc,
 };
-use tokio::task::JoinError;
 
-use crate::docker::container::{self, Container, StatsExt};
+use crate::docker::container::{Container, StatsExt};
 
 pub struct Metric<'a, M: registry::Metric + Clone> {
   pub name: &'a str,
@@ -91,9 +89,7 @@ pub fn init<'a>() -> Metrics<'a> {
   }
 }
 
-pub async fn collect<'a>(docker: Arc<Docker>, metrics: Arc<Metrics<'a>>) -> Result<(), JoinError> {
-  let containers = container::gather(docker).await?;
-
+pub fn update<'a>(metrics: Arc<Metrics<'a>>, containers: Vec<Container>) {
   for container in containers {
     let Container {
       ref state,
@@ -192,8 +188,6 @@ pub async fn collect<'a>(docker: Arc<Docker>, metrics: Arc<Metrics<'a>>) -> Resu
       }
     }
   }
-
-  Ok(())
 }
 
 #[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
