@@ -12,38 +12,46 @@ pub struct Container {
   pub stats: Option<Stats>,
 }
 
-pub async fn retrieve(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
-  let containers = docker.list_containers_all().await.unwrap_or_default();
+pub struct Containers {}
 
-  let result = containers.into_iter().map(|container| {
-    let docker = Arc::clone(&docker);
+impl Containers {
+  pub fn new() -> Self {
+    Self {}
+  }
 
-    tokio::spawn(async move {
-      let container = Arc::new(container);
+  pub async fn retrieve(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
+    let containers = docker.list_containers_all().await.unwrap_or_default();
 
-      let state = {
-        let docker = Arc::clone(&docker);
-        let container = Arc::clone(&container);
-        tokio::spawn(async move { docker.inspect_state(&container.id.as_deref()?).await })
-      };
+    let result = containers.into_iter().map(|container| {
+      let docker = Arc::clone(&docker);
 
-      let stats = {
-        let docker = Arc::clone(&docker);
-        let container = Arc::clone(&container);
-        tokio::spawn(async move { docker.stats_once(&container.id.as_deref()?).await })
-      };
+      tokio::spawn(async move {
+        let container = Arc::new(container);
 
-      let (state, stats) = tokio::join!(state, stats);
-      let (state, stats) = (state.ok().flatten(), stats.ok().flatten());
+        let state = {
+          let docker = Arc::clone(&docker);
+          let container = Arc::clone(&container);
+          tokio::spawn(async move { docker.inspect_state(&container.id.as_deref()?).await })
+        };
 
-      Container {
-        id: stats.as_ref().map(|s| String::from(&s.id)),
-        name: stats.as_ref().map(|s| String::from(&s.name[1..])),
-        state,
-        stats,
-      }
-    })
-  });
+        let stats = {
+          let docker = Arc::clone(&docker);
+          let container = Arc::clone(&container);
+          tokio::spawn(async move { docker.stats_once(&container.id.as_deref()?).await })
+        };
 
-  future::try_join_all(result).await
+        let (state, stats) = tokio::join!(state, stats);
+        let (state, stats) = (state.ok().flatten(), stats.ok().flatten());
+
+        Container {
+          id: stats.as_ref().map(|s| String::from(&s.id)),
+          name: stats.as_ref().map(|s| String::from(&s.name[1..])),
+          state,
+          stats,
+        }
+      })
+    });
+
+    future::try_join_all(result).await
+  }
 }

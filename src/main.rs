@@ -9,7 +9,7 @@ use std::{error::Error, sync::Arc};
 use tokio::{net::TcpListener, signal};
 
 use crate::constant::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS};
-use crate::docker::{metric, DockerExt};
+use crate::docker::{metric::Metrics, DockerExt};
 
 // TODO: check again metrics calculation, names etc.
 // TODO: http header for open metrics text?
@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     err
   })?;
 
-  let metrics = metric::init();
+  let metrics = Metrics::new();
   metrics.state_running_boolean.register(&mut registry);
   metrics.cpu_utilization_percent.register(&mut registry);
   metrics.memory_usage_bytes.register(&mut registry);
