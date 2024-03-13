@@ -62,7 +62,8 @@ mod tests {
     )
     .await;
 
-    let expected = "# HELP cpu_utilization_percent cpu utilization in percent.\n".to_owned()
+    let expected = "".to_owned()
+      + "# HELP cpu_utilization_percent cpu utilization in percent.\n"
       + "# TYPE cpu_utilization_percent gauge\n"
       + "cpu_utilization_percent{container_id=\"id_test\",container_name=\"name_test\"} 123.0\n"
       + "# EOF\n";
