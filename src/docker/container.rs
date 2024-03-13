@@ -23,7 +23,7 @@ impl Container {
   }
 
   pub fn get_name(&self) -> Option<&str> {
-    Some(&self.stats.as_ref()?.name)
+    Some(&self.stats.as_ref()?.name[1..])
   }
 }
 
