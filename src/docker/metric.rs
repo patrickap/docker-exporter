@@ -103,10 +103,14 @@ pub async fn collect_all<'a>(
       ref stats,
     } = container;
 
-    let labels = MetricsLabels {
-      container_id: String::from(container.get_id().unwrap_or("")),
-      container_name: String::from(container.get_name().unwrap_or("")),
-    };
+    let labels = match (container.get_id(), container.get_name()) {
+      (Some(id), Some(name)) => Some(MetricsLabels {
+        container_id: String::from(id),
+        container_name: String::from(name),
+      }),
+      _ => None,
+    }
+    .unwrap_or_default();
 
     if let Some(state) = state {
       if let Some(state_running) = state.running {
@@ -195,7 +199,7 @@ pub async fn collect_all<'a>(
   Ok(())
 }
 
-#[derive(Clone, Debug, EncodeLabelSet, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
 pub struct MetricsLabels {
   pub container_id: String,
   pub container_name: String,

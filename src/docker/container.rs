@@ -28,7 +28,7 @@ impl Container {
 }
 
 pub async fn gather_all(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
-  let containers = get_all(&docker).await.unwrap_or(Vec::with_capacity(0));
+  let containers = get_all(&docker).await.unwrap_or_default();
 
   let result = containers.into_iter().map(|container| {
     let docker = Arc::clone(&docker);
