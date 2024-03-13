@@ -19,7 +19,7 @@ pub struct Container {
   pub stats: Option<Stats>,
 }
 
-pub async fn collect(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
+pub async fn retrieve(docker: Arc<Docker>) -> Result<Vec<Container>, JoinError> {
   let summaries = get_summary(&docker).await.unwrap_or_default();
 
   let result = summaries.into_iter().map(|summary| {

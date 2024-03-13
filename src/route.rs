@@ -17,7 +17,7 @@ pub async fn metrics<'a>(
   Extension(docker): Extension<Arc<Docker>>,
   Extension(metrics): Extension<Arc<Metrics<'a>>>,
 ) -> Result<String, StatusCode> {
-  container::collect(docker)
+  container::retrieve(docker)
     .await
     .unwrap_or_default()
     .iter()
