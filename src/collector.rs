@@ -66,8 +66,8 @@ impl DockerCollector {
   }
 
   pub fn process_metrics(&self, state: &Option<ContainerState>, stats: &Option<Stats>) {
-    let id = stats.as_ref().and_then(|s| s.get_id());
-    let name = stats.as_ref().and_then(|s| s.get_name());
+    let id = stats.as_ref().and_then(|s| s.id());
+    let name = stats.as_ref().and_then(|s| s.name());
     let labels = match (id, name) {
       (Some(id), Some(name)) => Some(DockerLabels {
         container_id: id,
@@ -89,7 +89,7 @@ impl DockerCollector {
 
       if let Some(true) = state.running {
         if let Some(stats) = stats {
-          if let Some(cpu_utilization) = stats.get_cpu_utilization() {
+          if let Some(cpu_utilization) = stats.cpu_utilization() {
             self
               .metrics
               .cpu_utilization_percent
@@ -98,7 +98,7 @@ impl DockerCollector {
               .set(cpu_utilization);
           }
 
-          if let Some(memory_usage) = stats.get_memory_usage() {
+          if let Some(memory_usage) = stats.memory_usage() {
             self
               .metrics
               .memory_usage_bytes
@@ -107,7 +107,7 @@ impl DockerCollector {
               .set(memory_usage as f64);
           }
 
-          if let Some(memory_total) = stats.get_memory_total() {
+          if let Some(memory_total) = stats.memory_total() {
             self
               .metrics
               .memory_bytes_total
@@ -117,7 +117,7 @@ impl DockerCollector {
               .set(memory_total as f64);
           }
 
-          if let Some(memory_utilization) = stats.get_memory_utilization() {
+          if let Some(memory_utilization) = stats.memory_utilization() {
             self
               .metrics
               .memory_utilization_percent
@@ -126,7 +126,7 @@ impl DockerCollector {
               .set(memory_utilization);
           }
 
-          if let Some(block_io_tx_total) = stats.get_block_io_tx_total() {
+          if let Some(block_io_tx_total) = stats.block_io_tx_total() {
             self
               .metrics
               .block_io_tx_bytes_total
@@ -136,7 +136,7 @@ impl DockerCollector {
               .set(block_io_tx_total as f64);
           }
 
-          if let Some(block_io_rx_total) = stats.get_block_io_rx_total() {
+          if let Some(block_io_rx_total) = stats.block_io_rx_total() {
             self
               .metrics
               .block_io_rx_bytes_total
@@ -146,7 +146,7 @@ impl DockerCollector {
               .set(block_io_rx_total as f64);
           }
 
-          if let Some(network_tx_total) = stats.get_network_tx_total() {
+          if let Some(network_tx_total) = stats.network_tx_total() {
             self
               .metrics
               .network_tx_bytes_total
@@ -156,7 +156,7 @@ impl DockerCollector {
               .set(network_tx_total as f64);
           }
 
-          if let Some(network_rx_total) = stats.get_network_rx_total() {
+          if let Some(network_rx_total) = stats.network_rx_total() {
             self
               .metrics
               .network_rx_bytes_total

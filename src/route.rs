@@ -1,17 +1,21 @@
-use axum::{http::StatusCode, Extension};
+use axum::{
+  http::{header::CONTENT_TYPE, StatusCode},
+  response::IntoResponse,
+  Extension,
+};
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
 use crate::collector::DockerCollector;
 
-pub async fn status() -> &'static str {
-  "ok"
+pub async fn status() -> Result<impl IntoResponse, StatusCode> {
+  Ok((StatusCode::OK, "ok"))
 }
 
 pub async fn metrics(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(collector): Extension<Arc<DockerCollector>>,
-) -> Result<String, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
   let result = Arc::clone(&collector)
     .collect_metrics()
     .await
@@ -23,32 +27,52 @@ pub async fn metrics(
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
-    Ok(_) => Ok(buffer),
+    Ok(_) => Ok((
+      StatusCode::OK,
+      [(
+        CONTENT_TYPE,
+        "application/openmetrics-text; version=1.0.0; charset=utf-8",
+      )],
+      buffer,
+    )),
     _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
   }
 }
 
 #[cfg(test)]
 mod tests {
+  use axum::body::{self, Body};
   use bollard::Docker;
+  use std::error::Error;
 
   use super::*;
   use crate::{
     collector::{DockerLabels, DockerMetrics},
-    constant::DOCKER_API_VERSION,
+    extension::DockerExt,
   };
+
+  async fn read_body_as_str(body: Body) -> Result<String, Box<dyn Error>> {
+    let bytes = body::to_bytes(body, usize::MAX).await?;
+    Ok(String::from_utf8(bytes.to_vec())?)
+  }
 
   #[tokio::test]
   async fn it_returns_status() {
-    let response = status().await;
-    assert_eq!(response, "ok");
+    let result = status().await;
+    assert!(result.is_ok());
+
+    let response = result.unwrap().into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = read_body_as_str(response.into_body()).await.unwrap();
+
+    assert_eq!(body, "ok");
   }
 
   #[tokio::test]
   async fn it_returns_metrics() {
     let mut registry = Registry::from(Default::default());
-    // This is currently sufficient for a test as it returns Ok even if the socket is unavailable
-    let docker = Docker::connect_with_socket("/dev/null", 0, DOCKER_API_VERSION).unwrap();
+    let docker = Docker::try_connect_mock().unwrap();
     let metrics = DockerMetrics::new();
 
     metrics.cpu_utilization_percent.register(&mut registry);
@@ -64,11 +88,18 @@ mod tests {
 
     let collector = DockerCollector::new(docker, metrics);
 
-    let response = super::metrics(
+    let result = super::metrics(
       Extension(Arc::new(registry)),
       Extension(Arc::new(collector)),
     )
     .await;
+
+    assert!(result.is_ok());
+
+    let response = result.unwrap().into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = read_body_as_str(response.into_body()).await.unwrap();
 
     let expected = "".to_owned()
       + "# HELP cpu_utilization_percent cpu utilization in percent.\n"
@@ -76,7 +107,6 @@ mod tests {
       + "cpu_utilization_percent{container_id=\"id_test\",container_name=\"name_test\"} 123.0\n"
       + "# EOF\n";
 
-    assert_eq!(response.is_ok(), true);
-    assert_eq!(response, Ok(String::from(expected)));
+    assert_eq!(body, expected);
   }
 }

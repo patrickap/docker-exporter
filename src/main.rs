@@ -16,7 +16,6 @@ use crate::{
 };
 
 // TODO: check again metrics calculation, names etc.
-// TODO: http header for open metrics text?
 // TODO: tests
 // TODO: add timeout to graceful shutdown
 
