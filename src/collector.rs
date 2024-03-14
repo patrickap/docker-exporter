@@ -41,24 +41,12 @@ impl DockerCollector {
       let _self = Arc::clone(&self);
 
       tokio::spawn(async move {
-        let _self = Arc::clone(&_self);
-        let container = Arc::new(container);
+        let (state, stats) = tokio::join!(
+          _self.get_container_state(&container.id),
+          _self.get_container_stats(&container.id)
+        );
 
-        let state = {
-          let _self = Arc::clone(&_self);
-          let container = Arc::clone(&container);
-          tokio::spawn(async move { _self.get_container_state(&container.id).await })
-        };
-
-        let stats = {
-          let _self = Arc::clone(&_self);
-          let container = Arc::clone(&container);
-          tokio::spawn(async move { _self.get_container_stats(&container.id).await })
-        };
-
-        let (state, stats) = tokio::join!(state, stats);
-
-        (state.ok().flatten(), stats.ok().flatten())
+        (state, stats)
       })
     });
 
