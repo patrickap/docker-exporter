@@ -1,5 +1,7 @@
 use bollard::{
-  container::{InspectContainerOptions, ListContainersOptions, Stats, StatsOptions},
+  container::{
+    InspectContainerOptions, ListContainersOptions, Stats as ContainerStats, StatsOptions,
+  },
   models::{ContainerState, ContainerSummary},
   Docker,
 };
@@ -12,7 +14,7 @@ use prometheus_client::{
     family::Family,
     gauge::{Atomic, Gauge},
   },
-  registry::{Metric, Registry},
+  registry::{self, Registry},
 };
 use std::sync::{
   atomic::{AtomicI64, AtomicU64},
@@ -22,42 +24,154 @@ use tokio::task::JoinError;
 
 use crate::extension::DockerStatsExt;
 
-pub struct DockerCollector {
-  pub docker: Docker,
-  pub metrics: DockerMetrics,
+pub trait Collector {
+  fn new(docker: Arc<Docker>) -> Self;
+  async fn collect(
+    &self,
+    container: Arc<impl Container + Send + Sync + 'static>,
+  ) -> Result<Vec<(Option<ContainerState>, Option<ContainerStats>)>, JoinError>;
 }
 
-impl DockerCollector {
-  pub fn new(docker: Docker, metrics: DockerMetrics) -> Self {
-    Self { docker, metrics }
+pub struct DockerCollector {
+  docker: Arc<Docker>,
+}
+
+impl Collector for DockerCollector {
+  fn new(docker: Arc<Docker>) -> Self {
+    Self { docker }
   }
 
-  pub async fn collect_metrics(
-    self: Arc<Self>,
-  ) -> Result<Vec<(Option<ContainerState>, Option<Stats>)>, JoinError> {
-    let containers = self.get_containers().await.unwrap_or_default();
+  async fn collect(
+    &self,
+    container: Arc<impl Container + Send + Sync + 'static>,
+  ) -> Result<Vec<(Option<ContainerState>, Option<ContainerStats>)>, JoinError> {
+    let docker = Arc::clone(&self.docker);
+    let containers = container.get_all(&docker).await.unwrap_or_default();
 
-    let result = containers.into_iter().map(|container| {
-      let _self = Arc::clone(&self);
+    let tasks = containers.into_iter().map(|c| {
+      let docker = Arc::clone(&docker);
+      let container = Arc::clone(&container);
 
       tokio::spawn(async move {
         let (state, stats) = tokio::join!(
-          _self.get_container_state(&container.id),
-          _self.get_container_stats(&container.id)
+          container.get_state(&docker, &c.id),
+          container.get_stats(&docker, &c.id)
         );
 
         (state, stats)
       })
     });
 
-    future::try_join_all(result).await
+    future::try_join_all(tasks).await
+  }
+}
+
+pub trait Container {
+  fn new() -> Self;
+  async fn get_all(&self, docker: &Docker) -> Option<Vec<ContainerSummary>>;
+  async fn get_state(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerState>;
+  async fn get_stats(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerStats>;
+}
+
+pub struct DockerContainer {}
+
+impl Container for DockerContainer {
+  fn new() -> Self {
+    Self {}
   }
 
-  pub fn process_metrics(&self, state: &Option<ContainerState>, stats: &Option<Stats>) {
+  async fn get_all(&self, docker: &Docker) -> Option<Vec<ContainerSummary>> {
+    let options = Some(ListContainersOptions::<&str> {
+      all: true,
+      ..Default::default()
+    });
+
+    docker.list_containers(options).await.ok()
+  }
+
+  async fn get_state(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerState> {
+    let name = name.as_deref().unwrap_or_default();
+    let options = Some(InspectContainerOptions {
+      ..Default::default()
+    });
+
+    docker
+      .inspect_container(name, options)
+      .await
+      .ok()
+      .and_then(|i| i.state)
+  }
+
+  async fn get_stats(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerStats> {
+    let name = name.as_deref().unwrap_or_default();
+    let options = Some(StatsOptions {
+      stream: false,
+      ..Default::default()
+    });
+
+    docker
+      .stats(name, options)
+      .take(1)
+      .try_next()
+      .await
+      .ok()
+      .flatten()
+  }
+}
+
+pub trait Metric<M: registry::Metric + Clone> {
+  fn new(name: &str, help: &str, metric: M) -> Self;
+  fn register(&self, registry: &mut Registry);
+}
+
+pub struct DockerMetric<M: registry::Metric + Clone> {
+  pub name: String,
+  pub help: String,
+  pub metric: M,
+}
+
+impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
+  fn new(name: &str, help: &str, metric: M) -> Self {
+    Self {
+      name: String::from(name),
+      help: String::from(help),
+      metric,
+    }
+  }
+
+  fn register(&self, registry: &mut Registry) {
+    // Cloning the metric is fine and suggested by the library as it internally uses an Arc
+    registry.register(&self.name, &self.help, self.metric.clone());
+  }
+}
+
+pub trait Metrics {
+  fn new() -> Self;
+  fn process(&self, state: &Option<ContainerState>, stats: &Option<ContainerStats>);
+}
+
+pub struct DockerMetrics {
+  pub state_running_boolean: DockerMetric<Family<DockerMetricLabels, Gauge<i64, AtomicI64>>>,
+  pub cpu_utilization_percent: DockerMetric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
+  pub memory_usage_bytes: DockerMetric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
+  pub memory_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub memory_utilization_percent: DockerMetric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
+  pub block_io_tx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub block_io_rx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub network_tx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub network_rx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+}
+
+impl Metrics for DockerMetrics {
+  fn new() -> Self {
+    Default::default()
+  }
+
+  fn process(&self, state: &Option<ContainerState>, stats: &Option<ContainerStats>) {
     let id = stats.as_ref().and_then(|s| s.id());
     let name = stats.as_ref().and_then(|s| s.name());
     let labels = match (id, name) {
-      (Some(id), Some(name)) => Some(DockerLabels {
+      (Some(id), Some(name)) => Some(DockerMetricLabels {
         container_id: id,
         container_name: name,
       }),
@@ -68,7 +182,6 @@ impl DockerCollector {
     if let Some(state) = state {
       if let Some(state_running) = state.running {
         self
-          .metrics
           .state_running_boolean
           .metric
           .get_or_create(&labels)
@@ -79,7 +192,6 @@ impl DockerCollector {
         if let Some(stats) = stats {
           if let Some(cpu_utilization) = stats.cpu_utilization() {
             self
-              .metrics
               .cpu_utilization_percent
               .metric
               .get_or_create(&labels)
@@ -88,7 +200,6 @@ impl DockerCollector {
 
           if let Some(memory_usage) = stats.memory_usage() {
             self
-              .metrics
               .memory_usage_bytes
               .metric
               .get_or_create(&labels)
@@ -97,7 +208,6 @@ impl DockerCollector {
 
           if let Some(memory_total) = stats.memory_total() {
             self
-              .metrics
               .memory_bytes_total
               .metric
               .get_or_create(&labels)
@@ -107,7 +217,6 @@ impl DockerCollector {
 
           if let Some(memory_utilization) = stats.memory_utilization() {
             self
-              .metrics
               .memory_utilization_percent
               .metric
               .get_or_create(&labels)
@@ -116,7 +225,6 @@ impl DockerCollector {
 
           if let Some(block_io_tx_total) = stats.block_io_tx_total() {
             self
-              .metrics
               .block_io_tx_bytes_total
               .metric
               .get_or_create(&labels)
@@ -126,7 +234,6 @@ impl DockerCollector {
 
           if let Some(block_io_rx_total) = stats.block_io_rx_total() {
             self
-              .metrics
               .block_io_rx_bytes_total
               .metric
               .get_or_create(&labels)
@@ -136,7 +243,6 @@ impl DockerCollector {
 
           if let Some(network_tx_total) = stats.network_tx_total() {
             self
-              .metrics
               .network_tx_bytes_total
               .metric
               .get_or_create(&labels)
@@ -146,7 +252,6 @@ impl DockerCollector {
 
           if let Some(network_rx_total) = stats.network_rx_total() {
             self
-              .metrics
               .network_rx_bytes_total
               .metric
               .get_or_create(&labels)
@@ -157,88 +262,9 @@ impl DockerCollector {
       }
     }
   }
-
-  async fn get_containers(&self) -> Option<Vec<ContainerSummary>> {
-    let options = Some(ListContainersOptions::<&str> {
-      all: true,
-      ..Default::default()
-    });
-
-    self.docker.list_containers(options).await.ok()
-  }
-
-  async fn get_container_state(&self, container_name: &Option<String>) -> Option<ContainerState> {
-    let name = container_name.as_deref().unwrap_or_default();
-    let options = Some(InspectContainerOptions {
-      ..Default::default()
-    });
-
-    self
-      .docker
-      .inspect_container(name, options)
-      .await
-      .ok()
-      .and_then(|inspect| inspect.state)
-  }
-
-  async fn get_container_stats(&self, container_name: &Option<String>) -> Option<Stats> {
-    let name = container_name.as_deref().unwrap_or_default();
-    let options = Some(StatsOptions {
-      stream: false,
-      ..Default::default()
-    });
-
-    self
-      .docker
-      .stats(name, options)
-      .take(1)
-      .try_next()
-      .await
-      .ok()
-      .flatten()
-  }
 }
 
-pub struct DockerMetric<M: Metric + Clone> {
-  pub name: String,
-  pub help: String,
-  pub metric: M,
-}
-
-impl<M: Metric + Clone> DockerMetric<M> {
-  pub fn new(name: &str, help: &str, metric: M) -> Self {
-    Self {
-      name: String::from(name),
-      help: String::from(help),
-      metric,
-    }
-  }
-
-  pub fn register(&self, registry: &mut Registry) {
-    // Cloning the metric is fine and suggested by the library as it internally uses an Arc
-    registry.register(&self.name, &self.help, self.metric.clone());
-  }
-}
-
-pub struct DockerMetrics {
-  pub state_running_boolean: DockerMetric<Family<DockerLabels, Gauge<i64, AtomicI64>>>,
-  pub cpu_utilization_percent: DockerMetric<Family<DockerLabels, Gauge<f64, AtomicU64>>>,
-  pub memory_usage_bytes: DockerMetric<Family<DockerLabels, Gauge<f64, AtomicU64>>>,
-  pub memory_bytes_total: DockerMetric<Family<DockerLabels, Counter<f64, AtomicU64>>>,
-  pub memory_utilization_percent: DockerMetric<Family<DockerLabels, Gauge<f64, AtomicU64>>>,
-  pub block_io_tx_bytes_total: DockerMetric<Family<DockerLabels, Counter<f64, AtomicU64>>>,
-  pub block_io_rx_bytes_total: DockerMetric<Family<DockerLabels, Counter<f64, AtomicU64>>>,
-  pub network_tx_bytes_total: DockerMetric<Family<DockerLabels, Counter<f64, AtomicU64>>>,
-  pub network_rx_bytes_total: DockerMetric<Family<DockerLabels, Counter<f64, AtomicU64>>>,
-}
-
-impl DockerMetrics {
-  pub fn new() -> Self {
-    Default::default()
-  }
-}
-
-impl<'a> Default for DockerMetrics {
+impl Default for DockerMetrics {
   fn default() -> Self {
     Self {
       state_running_boolean: DockerMetric::new(
@@ -291,7 +317,7 @@ impl<'a> Default for DockerMetrics {
 }
 
 #[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
-pub struct DockerLabels {
+pub struct DockerMetricLabels {
   pub container_id: String,
   pub container_name: String,
 }

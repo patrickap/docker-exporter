@@ -10,7 +10,7 @@ use std::{error::Error, sync::Arc};
 use tokio::{net::TcpListener, signal};
 
 use crate::{
-  collector::{DockerCollector, DockerMetrics},
+  collector::{Collector, DockerCollector, DockerMetrics, Metric, Metrics},
   constant::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS},
   extension::DockerExt,
 };
@@ -23,10 +23,15 @@ use crate::{
 async fn main() -> Result<(), Box<dyn Error>> {
   let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
 
-  let docker = Docker::try_connect().map_err(|err| {
-    eprintln!("failed to connect to docker daemon: {:?}", err);
-    err
-  })?;
+  let docker = match Docker::try_connect() {
+    Ok(docker) => Ok(Arc::new(docker)),
+    Err(err) => {
+      eprintln!("failed to connect to docker daemon: {:?}", err);
+      Err(err)
+    }
+  }?;
+
+  let collector = DockerCollector::new(docker);
 
   let metrics = DockerMetrics::new();
   metrics.state_running_boolean.register(&mut registry);
@@ -39,14 +44,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
   metrics.network_tx_bytes_total.register(&mut registry);
   metrics.network_rx_bytes_total.register(&mut registry);
 
-  let collector = DockerCollector::new(docker, metrics);
-
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(route::status))
-    .route("/metrics", routing::get(route::metrics))
+    .route(
+      "/metrics",
+      routing::get(route::metrics::<DockerCollector, DockerMetrics>),
+    )
     .layer(Extension(Arc::new(registry)))
-    .layer(Extension(Arc::new(collector)));
+    .layer(Extension(Arc::new(collector)))
+    .layer(Extension(Arc::new(metrics)));
 
   println!("server listening on {}", listener.local_addr()?);
   axum::serve(listener, router)

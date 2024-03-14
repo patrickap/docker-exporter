@@ -2,23 +2,24 @@ use axum::{http::StatusCode, response::IntoResponse, Extension};
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::collector::DockerCollector;
+use crate::collector::{Collector, Container, DockerContainer, Metrics};
 
 pub async fn status() -> Result<impl IntoResponse, StatusCode> {
   Ok((StatusCode::OK, "ok"))
 }
 
-pub async fn metrics(
+pub async fn metrics<C: Collector, M: Metrics>(
   Extension(registry): Extension<Arc<Registry>>,
-  Extension(collector): Extension<Arc<DockerCollector>>,
+  Extension(collector): Extension<Arc<C>>,
+  Extension(metrics): Extension<Arc<M>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-  let result = Arc::clone(&collector)
-    .collect_metrics()
+  let result = collector
+    .collect(Arc::new(DockerContainer::new()))
     .await
     .unwrap_or_default();
 
   for (state, stats) in result {
-    collector.process_metrics(&state, &stats)
+    metrics.process(&state, &stats)
   }
 
   let mut buffer = String::new();
@@ -36,7 +37,7 @@ mod tests {
 
   use super::*;
   use crate::{
-    collector::{DockerLabels, DockerMetrics},
+    collector::{DockerCollector, DockerMetricLabels, DockerMetrics, Metric},
     extension::DockerExt,
   };
 
@@ -62,6 +63,7 @@ mod tests {
   async fn it_returns_metrics() {
     let mut registry = Registry::from(Default::default());
     let docker = Docker::try_connect_mock().unwrap();
+    let collector = DockerCollector::new(Arc::new(docker));
     let metrics = DockerMetrics::new();
 
     metrics.cpu_utilization_percent.register(&mut registry);
@@ -69,17 +71,16 @@ mod tests {
     metrics
       .cpu_utilization_percent
       .metric
-      .get_or_create(&DockerLabels {
+      .get_or_create(&DockerMetricLabels {
         container_id: String::from("id_test"),
         container_name: String::from("name_test"),
       })
       .set(123.0);
 
-    let collector = DockerCollector::new(docker, metrics);
-
     let result = super::metrics(
       Extension(Arc::new(registry)),
       Extension(Arc::new(collector)),
+      Extension(Arc::new(metrics)),
     )
     .await;
 
