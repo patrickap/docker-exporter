@@ -23,16 +23,13 @@ use tokio::task::JoinError;
 use crate::extension::DockerStatsExt;
 
 pub struct DockerCollector {
-  pub docker: Arc<Docker>,
-  pub metrics: Arc<DockerMetrics>,
+  pub docker: Docker,
+  pub metrics: DockerMetrics,
 }
 
 impl DockerCollector {
   pub fn new(docker: Docker, metrics: DockerMetrics) -> Self {
-    Self {
-      docker: Arc::new(docker),
-      metrics: Arc::new(metrics),
-    }
+    Self { docker, metrics }
   }
 
   pub async fn collect_metrics(
