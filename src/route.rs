@@ -1,9 +1,8 @@
 use axum::{http::StatusCode, Extension};
-use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::collector::{DockerExt, Metrics};
+use crate::collector::DockerCollector;
 
 pub async fn status() -> &'static str {
   "ok"
@@ -11,15 +10,13 @@ pub async fn status() -> &'static str {
 
 pub async fn metrics<'a>(
   Extension(registry): Extension<Arc<Registry>>,
-  Extension(docker): Extension<Arc<Docker>>,
-  Extension(metrics): Extension<Arc<Metrics<'a>>>,
+  Extension(collector): Extension<Arc<DockerCollector<'a>>>,
 ) -> Result<String, StatusCode> {
-  docker
-    .collect_metrics()
-    .await
-    .unwrap_or_default()
-    .iter()
-    .for_each(|metric| metrics.aggregate_metric(&metric));
+  let result = collector.collect().await.unwrap_or_default();
+
+  for (state, stats) in result {
+    collector.metrics.process(&state, &stats)
+  }
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
@@ -30,8 +27,13 @@ pub async fn metrics<'a>(
 
 #[cfg(test)]
 mod tests {
+  use bollard::Docker;
+
   use super::*;
-  use crate::collector::{DockerExt, MetricsLabels};
+  use crate::{
+    collector::{DockerLabels, DockerMetrics},
+    constant::DOCKER_API_VERSION,
+  };
 
   #[tokio::test]
   async fn it_returns_status() {
@@ -42,24 +44,26 @@ mod tests {
   #[tokio::test]
   async fn it_returns_metrics() {
     let mut registry = Registry::from(Default::default());
-    let docker = Docker::try_connect_mock().unwrap();
-    let metrics = Metrics::new();
+    // This is currently sufficient for a test as it returns Ok even if the socket is unavailable
+    let docker = Docker::connect_with_socket("/dev/null", 0, DOCKER_API_VERSION).unwrap();
+    let metrics = DockerMetrics::new();
 
     metrics.cpu_utilization_percent.register(&mut registry);
 
     metrics
       .cpu_utilization_percent
       .metric
-      .get_or_create(&MetricsLabels {
+      .get_or_create(&DockerLabels {
         container_id: String::from("id_test"),
         container_name: String::from("name_test"),
       })
       .set(123.0);
 
+    let collector = DockerCollector::new(docker, metrics);
+
     let response = super::metrics(
       Extension(Arc::new(registry)),
-      Extension(Arc::new(docker)),
-      Extension(Arc::new(metrics)),
+      Extension(Arc::new(collector)),
     )
     .await;
 
