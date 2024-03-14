@@ -86,7 +86,7 @@ impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
 }
 
 pub trait Metrics {
-  type Input;
+  type Input: IntoIterator;
 
   fn new() -> Self;
   fn process(&self, input: Self::Input);
