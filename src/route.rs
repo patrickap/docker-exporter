@@ -2,7 +2,7 @@ use axum::{http::StatusCode, response::IntoResponse, Extension};
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::collector::{Collector, Container, DockerContainer, Metrics};
+use crate::collector::{Collector, Metrics};
 
 pub async fn status() -> Result<impl IntoResponse, StatusCode> {
   Ok((StatusCode::OK, "ok"))
@@ -13,12 +13,9 @@ pub async fn metrics<C: Collector, M: Metrics>(
   Extension(collector): Extension<Arc<C>>,
   Extension(metrics): Extension<Arc<M>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-  let result = collector
-    .collect(Arc::new(DockerContainer::new()))
-    .await
-    .unwrap_or_default();
+  let output = collector.collect().await.unwrap_or_default();
 
-  for (state, stats) in result {
+  for (state, stats) in output {
     metrics.process(&state, &stats)
   }
 

@@ -1,12 +1,5 @@
-use bollard::{
-  container::{
-    InspectContainerOptions, ListContainersOptions, Stats as ContainerStats, StatsOptions,
-  },
-  models::{ContainerState, ContainerSummary},
-  Docker,
-};
-use futures::{future, Future};
-use futures::{StreamExt, TryStreamExt};
+use bollard::{container::Stats, models::ContainerState, Docker};
+use futures::future;
 use prometheus_client::{
   encoding::EncodeLabelSet,
   metrics::{
@@ -16,20 +9,22 @@ use prometheus_client::{
   },
   registry::{self, Registry},
 };
-use std::sync::{
-  atomic::{AtomicI64, AtomicU64},
-  Arc,
+use std::{
+  error::Error,
+  sync::{
+    atomic::{AtomicI64, AtomicU64},
+    Arc,
+  },
 };
-use tokio::task::JoinError;
 
-use crate::extension::DockerStatsExt;
+use crate::extension::{DockerExt, DockerStatsExt};
 
 pub trait Collector {
-  fn new(docker: Arc<Docker>) -> Self;
-  async fn collect(
-    &self,
-    container: Arc<impl Container + Send + Sync + 'static>,
-  ) -> Result<Vec<(Option<ContainerState>, Option<ContainerStats>)>, JoinError>;
+  type Source;
+  type Output: IntoIterator + Default;
+
+  fn new(source: Self::Source) -> Self;
+  async fn collect(&self) -> Result<Self::Output, impl Error>;
 }
 
 pub struct DockerCollector {
@@ -37,93 +32,30 @@ pub struct DockerCollector {
 }
 
 impl Collector for DockerCollector {
-  fn new(docker: Arc<Docker>) -> Self {
+  type Source = Arc<Docker>;
+  type Output = Vec<(Option<ContainerState>, Option<Stats>)>;
+
+  fn new(docker: Self::Source) -> Self {
     Self { docker }
   }
 
-  async fn collect(
-    &self,
-    container: Arc<impl Container + Send + Sync + 'static>,
-  ) -> Result<Vec<(Option<ContainerState>, Option<ContainerStats>)>, JoinError> {
+  async fn collect(&self) -> Result<Self::Output, impl Error> {
     let docker = Arc::clone(&self.docker);
-    let containers = container.get_all(&docker).await.unwrap_or_default();
+    let containers = docker.list_containers_all().await.unwrap_or_default();
 
     let tasks = containers.into_iter().map(|c| {
       let docker = Arc::clone(&docker);
-      let container = Arc::clone(&container);
 
       tokio::spawn(async move {
-        let (state, stats) = tokio::join!(
-          container.get_state(&docker, &c.id),
-          container.get_stats(&docker, &c.id),
-        );
+        let id = c.id.as_deref().unwrap_or_default();
+        let (state, stats) =
+          tokio::join!(docker.inspect_container_state(&id), docker.stats_once(&id),);
 
         (state, stats)
       })
     });
 
     future::try_join_all(tasks).await
-  }
-}
-
-pub trait Container {
-  fn new() -> Self;
-  async fn get_all(&self, docker: &Docker) -> Option<Vec<ContainerSummary>>;
-  fn get_state(
-    &self,
-    docker: &Docker,
-    name: &Option<String>,
-  ) -> impl Future<Output = Option<ContainerState>> + Send;
-  fn get_stats(
-    &self,
-    docker: &Docker,
-    name: &Option<String>,
-  ) -> impl Future<Output = Option<ContainerStats>> + Send;
-}
-
-pub struct DockerContainer {}
-
-impl Container for DockerContainer {
-  fn new() -> Self {
-    Self {}
-  }
-
-  async fn get_all(&self, docker: &Docker) -> Option<Vec<ContainerSummary>> {
-    let options = Some(ListContainersOptions::<&str> {
-      all: true,
-      ..Default::default()
-    });
-
-    docker.list_containers(options).await.ok()
-  }
-
-  async fn get_state(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerState> {
-    let name = name.as_deref().unwrap_or_default();
-    let options = Some(InspectContainerOptions {
-      ..Default::default()
-    });
-
-    docker
-      .inspect_container(name, options)
-      .await
-      .ok()
-      .and_then(|i| i.state)
-  }
-
-  async fn get_stats(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerStats> {
-    let name = name.as_deref().unwrap_or_default();
-    let options = Some(StatsOptions {
-      stream: false,
-      ..Default::default()
-    });
-
-    docker
-      .stats(name, options)
-      .take(1)
-      .try_next()
-      .await
-      .ok()
-      .flatten()
   }
 }
 
@@ -148,14 +80,16 @@ impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
   }
 
   fn register(&self, registry: &mut Registry) {
-    // Cloning the metric is fine and suggested by the library as it internally uses an Arc
+    // Cloning the metric is fine and suggested by the library
     registry.register(&self.name, &self.help, self.metric.clone());
   }
 }
 
 pub trait Metrics {
+  type Input;
+
   fn new() -> Self;
-  fn process(&self, state: &Option<ContainerState>, stats: &Option<ContainerStats>);
+  fn process(&self, input: Self::Input);
 }
 
 pub struct DockerMetrics {
@@ -171,11 +105,13 @@ pub struct DockerMetrics {
 }
 
 impl Metrics for DockerMetrics {
+  type Input = (Option<ContainerState>, Option<Stats>);
+
   fn new() -> Self {
     Default::default()
   }
 
-  fn process(&self, state: &Option<ContainerState>, stats: &Option<ContainerStats>) {
+  fn process(&self, (state, stats): Self::Input) {
     let id = stats.as_ref().and_then(|s| s.id());
     let name = stats.as_ref().and_then(|s| s.name());
     let labels = match (id, name) {
