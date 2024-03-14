@@ -307,3 +307,12 @@ pub struct DockerLabels {
   pub container_id: String,
   pub container_name: String,
 }
+
+#[cfg(test)]
+mod tests {
+  #[tokio::test]
+  async fn it_collects_metrics() {}
+
+  #[test]
+  fn it_processes_metrics() {}
+}
