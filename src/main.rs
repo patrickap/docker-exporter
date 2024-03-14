@@ -18,6 +18,7 @@ use crate::{
 // TODO: check again metrics calculation, names etc.
 // TODO: tests
 // TODO: add timeout to graceful shutdown
+// TODO: use impl Error instead of Box<dyn Error>?
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
