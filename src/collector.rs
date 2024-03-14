@@ -5,7 +5,7 @@ use bollard::{
   models::{ContainerState, ContainerSummary},
   Docker,
 };
-use futures::future;
+use futures::{future, Future};
 use futures::{StreamExt, TryStreamExt};
 use prometheus_client::{
   encoding::EncodeLabelSet,
@@ -55,7 +55,7 @@ impl Collector for DockerCollector {
       tokio::spawn(async move {
         let (state, stats) = tokio::join!(
           container.get_state(&docker, &c.id),
-          container.get_stats(&docker, &c.id)
+          container.get_stats(&docker, &c.id),
         );
 
         (state, stats)
@@ -69,8 +69,16 @@ impl Collector for DockerCollector {
 pub trait Container {
   fn new() -> Self;
   async fn get_all(&self, docker: &Docker) -> Option<Vec<ContainerSummary>>;
-  async fn get_state(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerState>;
-  async fn get_stats(&self, docker: &Docker, name: &Option<String>) -> Option<ContainerStats>;
+  fn get_state(
+    &self,
+    docker: &Docker,
+    name: &Option<String>,
+  ) -> impl Future<Output = Option<ContainerState>> + Send;
+  fn get_stats(
+    &self,
+    docker: &Docker,
+    name: &Option<String>,
+  ) -> impl Future<Output = Option<ContainerStats>> + Send;
 }
 
 pub struct DockerContainer {}
