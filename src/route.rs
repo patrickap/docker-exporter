@@ -1,8 +1,4 @@
-use axum::{
-  http::{header::CONTENT_TYPE, StatusCode},
-  response::IntoResponse,
-  Extension,
-};
+use axum::{http::StatusCode, response::IntoResponse, Extension};
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
@@ -27,14 +23,7 @@ pub async fn metrics(
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
-    Ok(_) => Ok((
-      StatusCode::OK,
-      [(
-        CONTENT_TYPE,
-        "application/openmetrics-text; version=1.0.0; charset=utf-8",
-      )],
-      buffer,
-    )),
+    Ok(_) => Ok((StatusCode::OK, buffer)),
     _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
   }
 }
