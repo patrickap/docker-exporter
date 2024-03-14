@@ -85,8 +85,9 @@ impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
   }
 }
 
-pub trait Metrics {
-  type Input: IntoIterator;
+pub trait Metrics<C: Collector> {
+  // The metrics input can be created from the collectors output by calling Into::into()
+  type Input: From<C::Output>;
 
   fn new() -> Self;
   fn process(&self, input: Self::Input);
@@ -104,7 +105,7 @@ pub struct DockerMetrics {
   pub network_rx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
 }
 
-impl Metrics for DockerMetrics {
+impl Metrics<DockerCollector> for DockerMetrics {
   type Input = <DockerCollector as Collector>::Output;
 
   fn new() -> Self {

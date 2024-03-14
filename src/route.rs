@@ -8,13 +8,13 @@ pub async fn status() -> Result<impl IntoResponse, StatusCode> {
   Ok((StatusCode::OK, "ok"))
 }
 
-pub async fn metrics<C: Collector, M: Metrics>(
+pub async fn metrics<C: Collector, M: Metrics<C>>(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(collector): Extension<Arc<C>>,
   Extension(metrics): Extension<Arc<M>>,
 ) -> Result<impl IntoResponse, StatusCode> {
   let output = collector.collect().await.unwrap_or_default();
-  metrics.process(output);
+  metrics.process(output.into());
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {
