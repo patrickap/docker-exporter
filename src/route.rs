@@ -14,10 +14,7 @@ pub async fn metrics<C: Collector, M: Metrics>(
   Extension(metrics): Extension<Arc<M>>,
 ) -> Result<impl IntoResponse, StatusCode> {
   let output = collector.collect().await.unwrap_or_default();
-
-  for (state, stats) in output {
-    metrics.process(&state, &stats)
-  }
+  metrics.process(output);
 
   let mut buffer = String::new();
   match text::encode(&mut buffer, &registry) {

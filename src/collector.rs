@@ -105,102 +105,104 @@ pub struct DockerMetrics {
 }
 
 impl Metrics for DockerMetrics {
-  type Input = (Option<ContainerState>, Option<Stats>);
+  type Input = <DockerCollector as Collector>::Output;
 
   fn new() -> Self {
     Default::default()
   }
 
-  fn process(&self, (state, stats): Self::Input) {
-    let id = stats.as_ref().and_then(|s| s.id());
-    let name = stats.as_ref().and_then(|s| s.name());
-    let labels = match (id, name) {
-      (Some(id), Some(name)) => Some(DockerMetricLabels {
-        container_id: id,
-        container_name: name,
-      }),
-      _ => None,
-    }
-    .unwrap_or_default();
-
-    if let Some(state) = state {
-      if let Some(state_running) = state.running {
-        self
-          .state_running_boolean
-          .metric
-          .get_or_create(&labels)
-          .set(state_running as i64);
+  fn process(&self, input: Self::Input) {
+    for (state, stats) in input {
+      let id = stats.as_ref().and_then(|s| s.id());
+      let name = stats.as_ref().and_then(|s| s.name());
+      let labels = match (id, name) {
+        (Some(id), Some(name)) => Some(DockerMetricLabels {
+          container_id: id,
+          container_name: name,
+        }),
+        _ => None,
       }
+      .unwrap_or_default();
 
-      if let Some(true) = state.running {
-        if let Some(stats) = stats {
-          if let Some(cpu_utilization) = stats.cpu_utilization() {
-            self
-              .cpu_utilization_percent
-              .metric
-              .get_or_create(&labels)
-              .set(cpu_utilization);
-          }
+      if let Some(state) = state {
+        if let Some(state_running) = state.running {
+          self
+            .state_running_boolean
+            .metric
+            .get_or_create(&labels)
+            .set(state_running as i64);
+        }
 
-          if let Some(memory_usage) = stats.memory_usage() {
-            self
-              .memory_usage_bytes
-              .metric
-              .get_or_create(&labels)
-              .set(memory_usage as f64);
-          }
+        if let Some(true) = state.running {
+          if let Some(stats) = stats {
+            if let Some(cpu_utilization) = stats.cpu_utilization() {
+              self
+                .cpu_utilization_percent
+                .metric
+                .get_or_create(&labels)
+                .set(cpu_utilization);
+            }
 
-          if let Some(memory_total) = stats.memory_total() {
-            self
-              .memory_bytes_total
-              .metric
-              .get_or_create(&labels)
-              .inner()
-              .set(memory_total as f64);
-          }
+            if let Some(memory_usage) = stats.memory_usage() {
+              self
+                .memory_usage_bytes
+                .metric
+                .get_or_create(&labels)
+                .set(memory_usage as f64);
+            }
 
-          if let Some(memory_utilization) = stats.memory_utilization() {
-            self
-              .memory_utilization_percent
-              .metric
-              .get_or_create(&labels)
-              .set(memory_utilization);
-          }
+            if let Some(memory_total) = stats.memory_total() {
+              self
+                .memory_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(memory_total as f64);
+            }
 
-          if let Some(block_io_tx_total) = stats.block_io_tx_total() {
-            self
-              .block_io_tx_bytes_total
-              .metric
-              .get_or_create(&labels)
-              .inner()
-              .set(block_io_tx_total as f64);
-          }
+            if let Some(memory_utilization) = stats.memory_utilization() {
+              self
+                .memory_utilization_percent
+                .metric
+                .get_or_create(&labels)
+                .set(memory_utilization);
+            }
 
-          if let Some(block_io_rx_total) = stats.block_io_rx_total() {
-            self
-              .block_io_rx_bytes_total
-              .metric
-              .get_or_create(&labels)
-              .inner()
-              .set(block_io_rx_total as f64);
-          }
+            if let Some(block_io_tx_total) = stats.block_io_tx_total() {
+              self
+                .block_io_tx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(block_io_tx_total as f64);
+            }
 
-          if let Some(network_tx_total) = stats.network_tx_total() {
-            self
-              .network_tx_bytes_total
-              .metric
-              .get_or_create(&labels)
-              .inner()
-              .set(network_tx_total as f64);
-          }
+            if let Some(block_io_rx_total) = stats.block_io_rx_total() {
+              self
+                .block_io_rx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(block_io_rx_total as f64);
+            }
 
-          if let Some(network_rx_total) = stats.network_rx_total() {
-            self
-              .network_rx_bytes_total
-              .metric
-              .get_or_create(&labels)
-              .inner()
-              .set(network_rx_total as f64);
+            if let Some(network_tx_total) = stats.network_tx_total() {
+              self
+                .network_tx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(network_tx_total as f64);
+            }
+
+            if let Some(network_rx_total) = stats.network_rx_total() {
+              self
+                .network_rx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(network_rx_total as f64);
+            }
           }
         }
       }
