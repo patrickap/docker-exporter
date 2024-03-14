@@ -47,21 +47,13 @@ impl DockerCollector {
         let state = {
           let _self = Arc::clone(&_self);
           let container = Arc::clone(&container);
-          tokio::spawn(async move {
-            _self
-              .get_container_state(&container.id.as_deref().unwrap_or_default())
-              .await
-          })
+          tokio::spawn(async move { _self.get_container_state(&container.id).await })
         };
 
         let stats = {
           let _self = Arc::clone(&_self);
           let container = Arc::clone(&container);
-          tokio::spawn(async move {
-            _self
-              .get_container_stats(&container.id.as_deref().unwrap_or_default())
-              .await
-          })
+          tokio::spawn(async move { _self.get_container_stats(&container.id).await })
         };
 
         let (state, stats) = tokio::join!(state, stats);
@@ -74,10 +66,9 @@ impl DockerCollector {
   }
 
   pub fn process_metrics(&self, state: &Option<ContainerState>, stats: &Option<Stats>) {
-    let labels = match (
-      stats.as_ref().and_then(|s| s.get_id()),
-      stats.as_ref().and_then(|s| s.get_name()),
-    ) {
+    let id = stats.as_ref().and_then(|s| s.get_id());
+    let name = stats.as_ref().and_then(|s| s.get_name());
+    let labels = match (id, name) {
       (Some(id), Some(name)) => Some(DockerLabels {
         container_id: id,
         container_name: name,
@@ -188,20 +179,22 @@ impl DockerCollector {
     self.docker.list_containers(options).await.ok()
   }
 
-  async fn get_container_state(&self, container_name: &str) -> Option<ContainerState> {
+  async fn get_container_state(&self, container_name: &Option<String>) -> Option<ContainerState> {
+    let name = container_name.as_deref().unwrap_or_default();
     let options = Some(InspectContainerOptions {
       ..Default::default()
     });
 
     self
       .docker
-      .inspect_container(container_name, options)
+      .inspect_container(name, options)
       .await
       .ok()
       .and_then(|inspect| inspect.state)
   }
 
-  async fn get_container_stats(&self, container_name: &str) -> Option<Stats> {
+  async fn get_container_stats(&self, container_name: &Option<String>) -> Option<Stats> {
+    let name = container_name.as_deref().unwrap_or_default();
     let options = Some(StatsOptions {
       stream: false,
       ..Default::default()
@@ -209,7 +202,7 @@ impl DockerCollector {
 
     self
       .docker
-      .stats(container_name, options)
+      .stats(name, options)
       .take(1)
       .try_next()
       .await
