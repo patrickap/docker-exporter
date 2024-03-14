@@ -8,14 +8,17 @@ pub async fn status() -> &'static str {
   "ok"
 }
 
-pub async fn metrics<'a>(
+pub async fn metrics(
   Extension(registry): Extension<Arc<Registry>>,
-  Extension(collector): Extension<Arc<DockerCollector<'a>>>,
+  Extension(collector): Extension<Arc<DockerCollector>>,
 ) -> Result<String, StatusCode> {
-  let result = collector.collect().await.unwrap_or_default();
+  let result = Arc::clone(&collector)
+    .collect_metrics()
+    .await
+    .unwrap_or_default();
 
   for (state, stats) in result {
-    collector.metrics.process(&state, &stats)
+    collector.process_metrics(&state, &stats)
   }
 
   let mut buffer = String::new();

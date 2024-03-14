@@ -1,12 +1,8 @@
 use bollard::{
-  container::{
-    InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats, StatsOptions,
-  },
+  container::{MemoryStatsStats, Stats},
   errors::Error,
-  secret::{ContainerState, ContainerSummary},
   Docker,
 };
-use futures::{StreamExt, TryStreamExt};
 use std::env;
 
 use crate::constant::{
@@ -15,9 +11,6 @@ use crate::constant::{
 
 pub trait DockerExt {
   fn try_connect() -> Result<Docker, Error>;
-  async fn get_containers_all(&self) -> Option<Vec<ContainerSummary>>;
-  async fn get_container_state(&self, container_name: &str) -> Option<ContainerState>;
-  async fn get_container_stats(&self, container_name: &str) -> Option<Stats>;
 }
 
 impl DockerExt for Docker {
@@ -32,42 +25,6 @@ impl DockerExt for Docker {
         DOCKER_API_VERSION,
       ),
     }
-  }
-
-  async fn get_containers_all(&self) -> Option<Vec<ContainerSummary>> {
-    let options = Some(ListContainersOptions::<&str> {
-      all: true,
-      ..Default::default()
-    });
-
-    self.list_containers(options).await.ok()
-  }
-
-  async fn get_container_state(&self, container_name: &str) -> Option<ContainerState> {
-    let options = Some(InspectContainerOptions {
-      ..Default::default()
-    });
-
-    self
-      .inspect_container(container_name, options)
-      .await
-      .ok()
-      .and_then(|inspect| inspect.state)
-  }
-
-  async fn get_container_stats(&self, container_name: &str) -> Option<Stats> {
-    let options = Some(StatsOptions {
-      stream: false,
-      ..Default::default()
-    });
-
-    self
-      .stats(container_name, options)
-      .take(1)
-      .try_next()
-      .await
-      .ok()
-      .flatten()
   }
 }
 
