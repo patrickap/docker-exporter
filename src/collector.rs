@@ -93,10 +93,10 @@ impl MetricProvider for Docker {
 }
 
 pub trait Metrics {
-  type Data: From<<Docker as MetricProvider>::Data>;
+  type Provider: MetricProvider;
 
   fn new() -> Self;
-  fn process(&self, data: Self::Data);
+  fn process(&self, data: <Self::Provider as MetricProvider>::Data);
 }
 
 pub struct DockerMetrics {
@@ -112,13 +112,13 @@ pub struct DockerMetrics {
 }
 
 impl Metrics for DockerMetrics {
-  type Data = <Docker as MetricProvider>::Data;
+  type Provider = Docker;
 
   fn new() -> Self {
     Default::default()
   }
 
-  fn process(&self, data: Self::Data) {
+  fn process(&self, data: <Self::Provider as MetricProvider>::Data) {
     for (state, stats) in data.unwrap_or_default() {
       let id = stats.as_ref().and_then(|s| s.id());
       let name = stats.as_ref().and_then(|s| s.name());
