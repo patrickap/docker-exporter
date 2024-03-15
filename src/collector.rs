@@ -17,48 +17,35 @@ use tokio::task::JoinError;
 
 use crate::extension::{DockerContainerExt, DockerStatsExt};
 
-pub trait Collector {
-  type Provider: Provider;
-  type Metrics: Metrics;
-
-  fn new(provider: Arc<Self::Provider>, metrics: Arc<Self::Metrics>) -> Self;
-  async fn get_metrics(&self) -> <Self::Provider as Provider>::Data;
-  fn set_metrics(&self, data: <Self::Provider as Provider>::Data);
+pub trait Collector<P: DataProvider> {
+  fn new(provider: P) -> Self;
+  async fn collect(&self) -> P::Output;
 }
 
-pub struct DockerCollector {
-  provider: Arc<Docker>,
-  metrics: Arc<DockerMetrics>,
+pub struct DockerCollector<P: DataProvider> {
+  provider: P,
 }
 
-impl Collector for DockerCollector {
-  type Provider = Docker;
-  type Metrics = DockerMetrics;
-
-  fn new(provider: Arc<Self::Provider>, metrics: Arc<Self::Metrics>) -> Self {
-    Self { provider, metrics }
+impl<P: DataProvider> Collector<P> for DockerCollector<P> {
+  fn new(provider: P) -> Self {
+    Self { provider }
   }
 
-  async fn get_metrics(&self) -> <Self::Provider as Provider>::Data {
-    Arc::clone(&self.provider).get().await
-  }
-
-  fn set_metrics(&self, data: <Self::Provider as Provider>::Data) {
-    self.metrics.set(data);
+  async fn collect(&self) -> P::Output {
+    self.provider.collect().await
   }
 }
 
-// TODO: does the provider trait has any advantage or could i get and set the metrics directly on the collector imstance?
-pub trait Provider {
-  type Data;
+pub trait DataProvider {
+  type Output;
 
-  async fn get(self: Arc<Self>) -> Self::Data;
+  async fn collect(&self) -> Self::Output;
 }
 
-impl Provider for Docker {
-  type Data = Result<Vec<(Option<ContainerState>, Option<Stats>)>, JoinError>;
+impl DataProvider for Arc<Docker> {
+  type Output = Result<Vec<(Option<ContainerState>, Option<Stats>)>, JoinError>;
 
-  async fn get(self: Arc<Self>) -> Self::Data {
+  async fn collect(&self) -> Self::Output {
     let docker = Arc::clone(&self);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
@@ -101,11 +88,9 @@ impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
   }
 }
 
-pub trait Metrics {
-  type Provider: Provider;
-
+pub trait Metrics<P: DataProvider> {
   fn new() -> Self;
-  fn set(&self, data: <Self::Provider as Provider>::Data);
+  fn process(&self, data: P::Output);
 }
 
 pub struct DockerMetrics {
@@ -120,14 +105,12 @@ pub struct DockerMetrics {
   pub network_rx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
 }
 
-impl Metrics for DockerMetrics {
-  type Provider = Docker;
-
+impl Metrics<Arc<Docker>> for DockerMetrics {
   fn new() -> Self {
     Default::default()
   }
 
-  fn set(&self, data: <Self::Provider as Provider>::Data) {
+  fn process(&self, data: <Arc<Docker> as DataProvider>::Output) {
     for (state, stats) in data.unwrap_or_default() {
       let id = stats.as_ref().and_then(|s| s.id());
       let name = stats.as_ref().and_then(|s| s.name());
