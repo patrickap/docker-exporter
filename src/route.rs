@@ -3,16 +3,16 @@ use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
-use crate::collector::{Collector, DataProvider, Metrics};
+use crate::collector::{Collector, Metrics};
 
 pub async fn status() -> Result<impl IntoResponse, StatusCode> {
   Ok((StatusCode::OK, "ok"))
 }
 
 pub async fn metrics<
-  C: Collector<Output = P::Output>,
-  M: Metrics<Input = P::Output>,
-  P: DataProvider,
+  C: Collector<Output = S::Output>,
+  M: Metrics<Input = S::Output>,
+  S: Collector,
 >(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(collector): Extension<Arc<C>>,

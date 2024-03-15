@@ -23,34 +23,28 @@ pub trait Collector {
   async fn collect(&self) -> Self::Output;
 }
 
-pub struct DockerCollector<P: DataProvider> {
-  provider: P,
+pub struct DockerCollector<S: Collector> {
+  sub_collector: S,
 }
 
-impl<P: DataProvider> DockerCollector<P> {
-  pub fn new(provider: P) -> Self {
-    Self { provider }
+impl<S: Collector> DockerCollector<S> {
+  pub fn new(sub_collector: S) -> Self {
+    Self { sub_collector }
   }
 }
 
-impl<P: DataProvider> Collector for DockerCollector<P> {
-  type Output = P::Output;
+impl<S: Collector> Collector for DockerCollector<S> {
+  type Output = S::Output;
 
   async fn collect(&self) -> Self::Output {
-    self.provider.data().await
+    self.sub_collector.collect().await
   }
 }
 
-pub trait DataProvider {
-  type Output;
-
-  async fn data(&self) -> Self::Output;
-}
-
-impl DataProvider for Arc<Docker> {
+impl Collector for Arc<Docker> {
   type Output = Vec<(Option<ContainerState>, Option<Stats>)>;
 
-  async fn data(&self) -> Self::Output {
+  async fn collect(&self) -> Self::Output {
     let docker = Arc::clone(&self);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
@@ -119,7 +113,7 @@ impl DockerMetrics {
 }
 
 impl Metrics for DockerMetrics {
-  type Input = <Arc<Docker> as DataProvider>::Output;
+  type Input = <Arc<Docker> as Collector>::Output;
 
   fn process(&self, data: Self::Input) {
     for (state, stats) in data {
