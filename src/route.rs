@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse, Extension};
+use bollard::Docker;
 use prometheus_client::{encoding::text, registry::Registry};
 use std::sync::Arc;
 
@@ -8,12 +9,12 @@ pub async fn status() -> Result<impl IntoResponse, StatusCode> {
   Ok((StatusCode::OK, "ok"))
 }
 
-pub async fn metrics<C: Collector, M: Metrics<C>>(
+pub async fn metrics<C: Collector<Provider = Docker>, M: Metrics>(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(collector): Extension<Arc<C>>,
   Extension(metrics): Extension<Arc<M>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-  let output = collector.collect().await.unwrap_or_default();
+  let output = collector.collect().await;
   metrics.process(output.into());
 
   let mut buffer = String::new();
