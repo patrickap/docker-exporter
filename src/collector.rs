@@ -17,7 +17,7 @@ use std::{
   },
 };
 
-use crate::extension::{DockerExt, DockerStatsExt};
+use crate::extension::{DockerContainerExt, DockerStatsExt};
 
 pub trait Collector {
   type Source;
@@ -268,8 +268,19 @@ pub struct DockerMetricLabels {
 
 #[cfg(test)]
 mod tests {
+  use bollard::Docker;
+
+  use super::*;
+  use crate::extension::DockerExt;
+
   #[tokio::test]
-  async fn it_collects_metrics() {}
+  async fn it_collects_metrics() {
+    let docker = Docker::try_connect_mock().unwrap();
+    let collector = DockerCollector::new(Arc::new(docker));
+    let output = collector.collect().await.unwrap();
+    let expected = Vec::from([]);
+    assert_eq!(output, expected)
+  }
 
   #[test]
   fn it_processes_metrics() {}

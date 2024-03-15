@@ -15,9 +15,6 @@ use crate::constant::{
 
 pub trait DockerExt {
   fn try_connect() -> Result<Docker, Error>;
-  async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
-  async fn inspect_container_state(&self, name: &str) -> Option<ContainerState>;
-  async fn stats_once(&self, name: &str) -> Option<Stats>;
   #[cfg(test)]
   fn try_connect_mock() -> Result<Docker, Error>;
 }
@@ -36,6 +33,20 @@ impl DockerExt for Docker {
     }
   }
 
+  #[cfg(test)]
+  fn try_connect_mock() -> Result<Docker, Error> {
+    // This is currently sufficient for a test as it returns Ok even if the socket is unavailable
+    Docker::connect_with_socket("/dev/null", 0, DOCKER_API_VERSION)
+  }
+}
+
+pub trait DockerContainerExt {
+  async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
+  async fn inspect_container_state(&self, name: &str) -> Option<ContainerState>;
+  async fn stats_once(&self, name: &str) -> Option<Stats>;
+}
+
+impl DockerContainerExt for Docker {
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>> {
     self
       .list_containers(Some(ListContainersOptions::<&str> {
@@ -73,12 +84,6 @@ impl DockerExt for Docker {
       .await
       .ok()
       .flatten()
-  }
-
-  #[cfg(test)]
-  fn try_connect_mock() -> Result<Docker, Error> {
-    // This is currently sufficient for a test as it returns Ok even if the socket is unavailable
-    Docker::connect_with_socket("/dev/null", 0, DOCKER_API_VERSION)
   }
 }
 
