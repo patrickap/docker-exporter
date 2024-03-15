@@ -48,10 +48,7 @@ impl Collector for DockerCollector {
 
       tokio::spawn(async move {
         let id = c.id.as_deref().unwrap_or_default();
-        let (state, stats) =
-          tokio::join!(docker.inspect_container_state(&id), docker.stats_once(&id));
-
-        (state, stats)
+        tokio::join!(docker.inspect_container_state(&id), docker.stats_once(&id))
       })
     });
 
