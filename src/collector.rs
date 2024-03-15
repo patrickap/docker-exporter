@@ -37,20 +37,20 @@ impl<P: DataProvider> Collector for DockerCollector<P> {
   type Output = P::Output;
 
   async fn collect(&self) -> Self::Output {
-    self.provider.collect().await
+    self.provider.data().await
   }
 }
 
 pub trait DataProvider {
   type Output;
 
-  async fn collect(&self) -> Self::Output;
+  async fn data(&self) -> Self::Output;
 }
 
 impl DataProvider for Arc<Docker> {
   type Output = Vec<(Option<ContainerState>, Option<Stats>)>;
 
-  async fn collect(&self) -> Self::Output {
+  async fn data(&self) -> Self::Output {
     let docker = Arc::clone(&self);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
