@@ -14,12 +14,6 @@ use crate::constant::{
 };
 
 pub trait DockerExt {
-  fn try_connect() -> Result<Docker, Error>;
-  #[cfg(test)]
-  fn try_connect_mock() -> Result<Docker, Error>;
-}
-
-impl DockerExt for Docker {
   fn try_connect() -> Result<Docker, Error> {
     match env::var(DOCKER_HOST_ENV) {
       Ok(docker_host) => {
@@ -39,6 +33,8 @@ impl DockerExt for Docker {
     Docker::connect_with_socket("/dev/null", 0, DOCKER_API_VERSION)
   }
 }
+
+impl DockerExt for Docker {}
 
 pub trait DockerContainerExt {
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
