@@ -25,14 +25,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
   let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
 
   let docker = match Docker::try_connect() {
-    Ok(docker) => Ok(Arc::new(docker)),
+    Ok(docker) => Ok(docker),
     Err(err) => {
       eprintln!("failed to connect to docker daemon: {:?}", err);
       Err(err)
     }
   }?;
-
-  let collector = DockerCollector::new(docker);
 
   let metrics = DockerMetrics::new();
   metrics.state_running_boolean.register(&mut registry);
@@ -45,16 +43,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
   metrics.network_tx_bytes_total.register(&mut registry);
   metrics.network_rx_bytes_total.register(&mut registry);
 
+  let collector = DockerCollector::new(Arc::new(docker), Arc::new(metrics));
+
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(route::status))
-    .route(
-      "/metrics",
-      routing::get(route::metrics::<DockerCollector, DockerMetrics>),
-    )
+    .route("/metrics", routing::get(route::metrics::<DockerCollector>))
     .layer(Extension(Arc::new(registry)))
-    .layer(Extension(Arc::new(collector)))
-    .layer(Extension(Arc::new(metrics)));
+    .layer(Extension(Arc::new(collector)));
 
   println!("server listening on {}", listener.local_addr()?);
   axum::serve(listener, router)

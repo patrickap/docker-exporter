@@ -18,25 +18,162 @@ use tokio::task::JoinError;
 use crate::extension::{DockerContainerExt, DockerStatsExt};
 
 pub trait Collector {
-  type Provider: MetricProvider;
+  type Provider: Provider;
+  type Metrics: Metrics;
 
-  fn new(provider: Arc<Self::Provider>) -> Self;
-  async fn collect(&self) -> <Self::Provider as MetricProvider>::Data;
+  fn new(provider: Arc<Self::Provider>, metrics: Arc<Self::Metrics>) -> Self;
+  async fn get_metrics(&self) -> <Self::Provider as Provider>::Data;
+  fn set_metrics(&self, data: <Self::Provider as Provider>::Data);
 }
 
 pub struct DockerCollector {
   provider: Arc<Docker>,
+  metrics: Arc<DockerMetrics>,
 }
 
 impl Collector for DockerCollector {
   type Provider = Docker;
+  type Metrics = DockerMetrics;
 
-  fn new(provider: Arc<Self::Provider>) -> Self {
-    Self { provider }
+  fn new(provider: Arc<Self::Provider>, metrics: Arc<Self::Metrics>) -> Self {
+    Self { provider, metrics }
   }
 
-  async fn collect(&self) -> <Self::Provider as MetricProvider>::Data {
+  async fn get_metrics(&self) -> <Self::Provider as Provider>::Data {
     Arc::clone(&self.provider).get_data().await
+  }
+
+  fn set_metrics(&self, data: <Self::Provider as Provider>::Data) {
+    for (state, stats) in data.unwrap_or_default() {
+      let id = stats.as_ref().and_then(|s| s.id());
+      let name = stats.as_ref().and_then(|s| s.name());
+      let labels = match (id, name) {
+        (Some(id), Some(name)) => Some(DockerMetricLabels {
+          container_id: id,
+          container_name: name,
+        }),
+        _ => None,
+      }
+      .unwrap_or_default();
+
+      if let Some(state) = state {
+        if let Some(state_running) = state.running {
+          self
+            .metrics
+            .state_running_boolean
+            .metric
+            .get_or_create(&labels)
+            .set(state_running as i64);
+        }
+
+        if let Some(true) = state.running {
+          if let Some(stats) = stats {
+            if let Some(cpu_utilization) = stats.cpu_utilization() {
+              self
+                .metrics
+                .cpu_utilization_percent
+                .metric
+                .get_or_create(&labels)
+                .set(cpu_utilization);
+            }
+
+            if let Some(memory_usage) = stats.memory_usage() {
+              self
+                .metrics
+                .memory_usage_bytes
+                .metric
+                .get_or_create(&labels)
+                .set(memory_usage as f64);
+            }
+
+            if let Some(memory_total) = stats.memory_total() {
+              self
+                .metrics
+                .memory_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(memory_total as f64);
+            }
+
+            if let Some(memory_utilization) = stats.memory_utilization() {
+              self
+                .metrics
+                .memory_utilization_percent
+                .metric
+                .get_or_create(&labels)
+                .set(memory_utilization);
+            }
+
+            if let Some(block_io_tx_total) = stats.block_io_tx_total() {
+              self
+                .metrics
+                .block_io_tx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(block_io_tx_total as f64);
+            }
+
+            if let Some(block_io_rx_total) = stats.block_io_rx_total() {
+              self
+                .metrics
+                .block_io_rx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(block_io_rx_total as f64);
+            }
+
+            if let Some(network_tx_total) = stats.network_tx_total() {
+              self
+                .metrics
+                .network_tx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(network_tx_total as f64);
+            }
+
+            if let Some(network_rx_total) = stats.network_rx_total() {
+              self
+                .metrics
+                .network_rx_bytes_total
+                .metric
+                .get_or_create(&labels)
+                .inner()
+                .set(network_rx_total as f64);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+pub trait Provider {
+  type Data;
+
+  async fn get_data(self: Arc<Self>) -> Self::Data;
+}
+
+impl Provider for Docker {
+  type Data = Result<Vec<(Option<ContainerState>, Option<Stats>)>, JoinError>;
+
+  async fn get_data(self: Arc<Self>) -> Self::Data {
+    let docker = Arc::clone(&self);
+    let containers = docker.list_containers_all().await.unwrap_or_default();
+
+    let tasks = containers.into_iter().map(|c| {
+      let docker = Arc::clone(&docker);
+
+      tokio::spawn(async move {
+        let id = c.id.as_deref().unwrap_or_default();
+        tokio::join!(docker.inspect_container_state(&id), docker.stats_once(&id))
+      })
+    });
+
+    future::try_join_all(tasks).await
   }
 }
 
@@ -66,37 +203,8 @@ impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
   }
 }
 
-pub trait MetricProvider {
-  type Data;
-
-  async fn get_data(self: Arc<Self>) -> Self::Data;
-}
-
-impl MetricProvider for Docker {
-  type Data = Result<Vec<(Option<ContainerState>, Option<Stats>)>, JoinError>;
-
-  async fn get_data(self: Arc<Self>) -> Self::Data {
-    let docker = Arc::clone(&self);
-    let containers = docker.list_containers_all().await.unwrap_or_default();
-
-    let tasks = containers.into_iter().map(|c| {
-      let docker = Arc::clone(&docker);
-
-      tokio::spawn(async move {
-        let id = c.id.as_deref().unwrap_or_default();
-        tokio::join!(docker.inspect_container_state(&id), docker.stats_once(&id))
-      })
-    });
-
-    future::try_join_all(tasks).await
-  }
-}
-
 pub trait Metrics {
-  type Provider: MetricProvider;
-
   fn new() -> Self;
-  fn process(&self, data: <Self::Provider as MetricProvider>::Data);
 }
 
 pub struct DockerMetrics {
@@ -112,108 +220,8 @@ pub struct DockerMetrics {
 }
 
 impl Metrics for DockerMetrics {
-  type Provider = Docker;
-
   fn new() -> Self {
     Default::default()
-  }
-
-  fn process(&self, data: <Self::Provider as MetricProvider>::Data) {
-    for (state, stats) in data.unwrap_or_default() {
-      let id = stats.as_ref().and_then(|s| s.id());
-      let name = stats.as_ref().and_then(|s| s.name());
-      let labels = match (id, name) {
-        (Some(id), Some(name)) => Some(DockerMetricLabels {
-          container_id: id,
-          container_name: name,
-        }),
-        _ => None,
-      }
-      .unwrap_or_default();
-
-      if let Some(state) = state {
-        if let Some(state_running) = state.running {
-          self
-            .state_running_boolean
-            .metric
-            .get_or_create(&labels)
-            .set(state_running as i64);
-        }
-
-        if let Some(true) = state.running {
-          if let Some(stats) = stats {
-            if let Some(cpu_utilization) = stats.cpu_utilization() {
-              self
-                .cpu_utilization_percent
-                .metric
-                .get_or_create(&labels)
-                .set(cpu_utilization);
-            }
-
-            if let Some(memory_usage) = stats.memory_usage() {
-              self
-                .memory_usage_bytes
-                .metric
-                .get_or_create(&labels)
-                .set(memory_usage as f64);
-            }
-
-            if let Some(memory_total) = stats.memory_total() {
-              self
-                .memory_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(memory_total as f64);
-            }
-
-            if let Some(memory_utilization) = stats.memory_utilization() {
-              self
-                .memory_utilization_percent
-                .metric
-                .get_or_create(&labels)
-                .set(memory_utilization);
-            }
-
-            if let Some(block_io_tx_total) = stats.block_io_tx_total() {
-              self
-                .block_io_tx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(block_io_tx_total as f64);
-            }
-
-            if let Some(block_io_rx_total) = stats.block_io_rx_total() {
-              self
-                .block_io_rx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(block_io_rx_total as f64);
-            }
-
-            if let Some(network_tx_total) = stats.network_tx_total() {
-              self
-                .network_tx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(network_tx_total as f64);
-            }
-
-            if let Some(network_rx_total) = stats.network_rx_total() {
-              self
-                .network_rx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(network_rx_total as f64);
-            }
-          }
-        }
-      }
-    }
   }
 }
 
