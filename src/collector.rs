@@ -48,6 +48,7 @@ impl Collector for DockerCollector {
   }
 }
 
+// TODO: does the provider trait has any advantage or could i get and set the metrics directly on the collector imstance?
 pub trait Provider {
   type Data;
 
