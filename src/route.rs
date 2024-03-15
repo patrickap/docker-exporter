@@ -9,7 +9,11 @@ pub async fn status() -> Result<impl IntoResponse, StatusCode> {
   Ok((StatusCode::OK, "ok"))
 }
 
-pub async fn metrics<C: Collector<P>, M: Metrics<P>, P: DataProvider>(
+pub async fn metrics<
+  C: Collector<Output = P::Output>,
+  M: Metrics<Input = P::Output>,
+  P: DataProvider,
+>(
   Extension(registry): Extension<Arc<Registry>>,
   Extension(collector): Extension<Arc<C>>,
   Extension(metrics): Extension<Arc<M>>,

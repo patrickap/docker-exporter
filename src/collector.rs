@@ -17,21 +17,26 @@ use tokio::task::JoinError;
 
 use crate::extension::{DockerContainerExt, DockerStatsExt};
 
-pub trait Collector<P: DataProvider> {
-  fn new(provider: P) -> Self;
-  async fn collect(&self) -> P::Output;
+pub trait Collector {
+  type Output;
+
+  async fn collect(&self) -> Self::Output;
 }
 
 pub struct DockerCollector<P: DataProvider> {
   provider: P,
 }
 
-impl<P: DataProvider> Collector<P> for DockerCollector<P> {
-  fn new(provider: P) -> Self {
+impl<P: DataProvider> DockerCollector<P> {
+  pub fn new(provider: P) -> Self {
     Self { provider }
   }
+}
 
-  async fn collect(&self) -> P::Output {
+impl<P: DataProvider> Collector for DockerCollector<P> {
+  type Output = P::Output;
+
+  async fn collect(&self) -> Self::Output {
     self.provider.collect().await
   }
 }
@@ -43,7 +48,7 @@ pub trait DataProvider {
 }
 
 impl DataProvider for Arc<Docker> {
-  type Output = Result<Vec<(Option<ContainerState>, Option<Stats>)>, JoinError>;
+  type Output = Vec<(Option<ContainerState>, Option<Stats>)>;
 
   async fn collect(&self) -> Self::Output {
     let docker = Arc::clone(&self);
@@ -58,12 +63,11 @@ impl DataProvider for Arc<Docker> {
       })
     });
 
-    future::try_join_all(tasks).await
+    future::try_join_all(tasks).await.unwrap_or_default()
   }
 }
 
-pub trait Metric<M: registry::Metric + Clone> {
-  fn new(name: &str, help: &str, metric: M) -> Self;
+pub trait Metric {
   fn register(&self, registry: &mut Registry);
 }
 
@@ -73,24 +77,27 @@ pub struct DockerMetric<M: registry::Metric + Clone> {
   pub metric: M,
 }
 
-impl<M: registry::Metric + Clone> Metric<M> for DockerMetric<M> {
-  fn new(name: &str, help: &str, metric: M) -> Self {
+impl<M: registry::Metric + Clone> DockerMetric<M> {
+  pub fn new(name: &str, help: &str, metric: M) -> Self {
     Self {
       name: String::from(name),
       help: String::from(help),
       metric,
     }
   }
+}
 
+impl<M: registry::Metric + Clone> Metric for DockerMetric<M> {
   fn register(&self, registry: &mut Registry) {
     // Cloning the metric is fine and suggested by the library
     registry.register(&self.name, &self.help, self.metric.clone());
   }
 }
 
-pub trait Metrics<P: DataProvider> {
-  fn new() -> Self;
-  fn process(&self, data: P::Output);
+pub trait Metrics {
+  type Input;
+
+  fn process(&self, data: Self::Input);
 }
 
 pub struct DockerMetrics {
@@ -105,13 +112,17 @@ pub struct DockerMetrics {
   pub network_rx_bytes_total: DockerMetric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
 }
 
-impl Metrics<Arc<Docker>> for DockerMetrics {
-  fn new() -> Self {
+impl DockerMetrics {
+  pub fn new() -> Self {
     Default::default()
   }
+}
 
-  fn process(&self, data: <Arc<Docker> as DataProvider>::Output) {
-    for (state, stats) in data.unwrap_or_default() {
+impl Metrics for DockerMetrics {
+  type Input = <Arc<Docker> as DataProvider>::Output;
+
+  fn process(&self, data: Self::Input) {
+    for (state, stats) in data {
       let id = stats.as_ref().and_then(|s| s.id());
       let name = stats.as_ref().and_then(|s| s.name());
       let labels = match (id, name) {

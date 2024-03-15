@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .route("/status", routing::get(route::status))
     .route(
       "/metrics",
-      routing::get(route::metrics::<DockerCollector<_>, DockerMetrics, Arc<Docker>>),
+      routing::get(route::metrics::<DockerCollector<Arc<Docker>>, DockerMetrics, Arc<Docker>>),
     )
     .layer(Extension(Arc::new(registry)))
     .layer(Extension(Arc::new(collector)))
