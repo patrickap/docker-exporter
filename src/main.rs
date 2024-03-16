@@ -10,7 +10,7 @@ use std::{error::Error, sync::Arc};
 use tokio::{net::TcpListener, signal};
 
 use crate::{
-  collector::{Collector, DockerCollector, DockerMetrics, Metrics},
+  collector::{DockerCollector, DockerMetrics, Metrics},
   constant::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS},
   extension::DockerExt,
 };

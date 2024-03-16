@@ -13,7 +13,6 @@ use std::sync::{
   atomic::{AtomicI64, AtomicU64},
   Arc,
 };
-use tokio::task::JoinError;
 
 use crate::extension::{DockerExt, DockerStatsExt, RegistryExt};
 
