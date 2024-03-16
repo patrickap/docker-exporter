@@ -78,15 +78,15 @@ pub trait Metrics {
 }
 
 pub struct DockerMetrics {
-  state_running_boolean: Metric<Family<DockerMetricLabels, Gauge<i64, AtomicI64>>>,
-  cpu_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  memory_usage_bytes: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  memory_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  memory_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  block_io_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  block_io_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  network_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  network_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub state_running_boolean: Metric<Family<DockerMetricLabels, Gauge<i64, AtomicI64>>>,
+  pub cpu_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
+  pub memory_usage_bytes: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
+  pub memory_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub memory_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
+  pub block_io_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub block_io_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub network_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub network_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
 }
 
 impl DockerMetrics {
