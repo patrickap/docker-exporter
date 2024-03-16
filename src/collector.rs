@@ -263,22 +263,45 @@ pub struct DockerMetricLabels {
   pub container_name: String,
 }
 
-// #[cfg(test)]
-// mod tests {
-//   use bollard::Docker;
+#[cfg(test)]
+mod tests {
+  use bollard::models::ContainerSummary;
 
-//   use super::*;
-//   use crate::extension::DockerExt;
+  use super::*;
+  use crate::extension::DockerExt;
 
-//   #[tokio::test]
-//   async fn it_collects_metrics() {
-//     let docker = Docker::try_connect_mock().unwrap();
-//     let collector = DockerCollector::new(Arc::new(docker));
-//     let output = collector.collect().await.unwrap();
-//     let expected = Vec::from([]);
-//     assert_eq!(output, expected)
-//   }
+  #[tokio::test]
+  async fn it_collects_metrics() {
+    struct DockerMock {}
 
-//   #[test]
-//   fn it_processes_metrics() {}
-// }
+    impl DockerExt for DockerMock {
+      async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>> {
+        Some(Vec::from([ContainerSummary {
+          id: Some(String::from("id_test")),
+          ..Default::default()
+        }]))
+      }
+      async fn inspect_container_state(&self, _: &str) -> Option<ContainerState> {
+        Some(ContainerState {
+          running: Some(true),
+          ..Default::default()
+        })
+      }
+      async fn stats_once(&self, _: &str) -> Option<Stats> {
+        None
+      }
+    }
+
+    let docker = DockerMock {};
+    let collector = DockerCollector::new(Arc::new(docker));
+    let result = collector.collect().await;
+    assert_eq!(result.len(), 1);
+
+    let (state, stats) = &result[0];
+    assert_eq!(state.as_ref().unwrap().running, Some(true));
+    assert_eq!(stats.as_ref(), None)
+  }
+
+  #[test]
+  fn it_processes_metrics() {}
+}

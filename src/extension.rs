@@ -3,7 +3,7 @@ use bollard::{
     InspectContainerOptions, ListContainersOptions, MemoryStatsStats, Stats, StatsOptions,
   },
   errors::Error,
-  secret::{ContainerState, ContainerSummary},
+  models::{ContainerState, ContainerSummary},
   Docker,
 };
 use futures::{Future, StreamExt, TryStreamExt};
