@@ -15,6 +15,20 @@ use crate::{
   constant::{DOCKER_API_VERSION, DOCKER_CONNECTION_TIMEOUT, DOCKER_HOST_ENV, DOCKER_SOCKET_PATH},
 };
 
+pub trait RegistryExt {
+  fn register_metric(&mut self, metric: &Metric<impl registry::Metric + Clone>);
+}
+
+impl RegistryExt for Registry {
+  fn register_metric(
+    &mut self,
+    Metric { name, help, metric }: &Metric<impl registry::Metric + Clone>,
+  ) {
+    // Cloning the metric is fine and suggested by the library
+    self.register(name, help, metric.clone())
+  }
+}
+
 pub trait DockerExt {
   fn try_connect() -> Result<Docker, Error> {
     match env::var(DOCKER_HOST_ENV) {
@@ -186,19 +200,5 @@ impl DockerStatsExt for Stats {
   fn network_rx_total(&self) -> Option<u64> {
     let (_, rx) = self.network_total()?;
     Some(rx)
-  }
-}
-
-pub trait RegistryExt {
-  fn register_metric(&mut self, metric: &Metric<impl registry::Metric + Clone>);
-}
-
-impl RegistryExt for Registry {
-  fn register_metric(
-    &mut self,
-    Metric { name, help, metric }: &Metric<impl registry::Metric + Clone>,
-  ) {
-    // Cloning the metric is fine and suggested by the library
-    self.register(name, help, metric.clone())
   }
 }
