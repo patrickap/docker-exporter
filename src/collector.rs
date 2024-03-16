@@ -59,7 +59,7 @@ pub struct Metric<M: registry::Metric> {
   pub metric: M,
 }
 
-impl<M: registry::Metric + Clone> Metric<M> {
+impl<M: registry::Metric> Metric<M> {
   pub fn new(name: &str, help: &str, metric: M) -> Self {
     Self {
       name: String::from(name),

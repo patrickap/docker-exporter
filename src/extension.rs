@@ -198,6 +198,7 @@ impl RegistryExt for Registry {
     &mut self,
     Metric { name, help, metric }: &Metric<impl registry::Metric + Clone>,
   ) {
+    // Cloning the metric is fine and suggested by the library
     self.register(name, help, metric.clone())
   }
 }
