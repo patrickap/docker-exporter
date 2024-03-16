@@ -306,7 +306,7 @@ mod tests {
   }
 
   #[test]
-  fn it_updated_metrics() {
+  fn it_updates_metrics() {
     let labels = DockerMetricLabels {
       ..Default::default()
     };
