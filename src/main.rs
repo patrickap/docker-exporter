@@ -32,20 +32,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
   }?;
 
+  let collector = DockerCollector::new(Arc::new(docker));
+
   let metrics = DockerMetrics::new();
   metrics.register(&mut registry);
-
-  let collector = DockerCollector::new(Arc::new(docker), Arc::new(metrics));
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
   let router = Router::new()
     .route("/status", routing::get(route::status))
     .route(
       "/metrics",
-      routing::get(route::metrics::<DockerCollector<Docker, DockerMetrics>>),
+      routing::get(route::metrics::<DockerCollector<Docker>, DockerMetrics>),
     )
     .layer(Extension(Arc::new(registry)))
-    .layer(Extension(Arc::new(collector)));
+    .layer(Extension(Arc::new(collector)))
+    .layer(Extension(Arc::new(metrics)));
 
   println!("server listening on {}", listener.local_addr()?);
   axum::serve(listener, router)
