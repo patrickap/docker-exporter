@@ -303,5 +303,36 @@ mod tests {
   }
 
   #[test]
-  fn it_processes_metrics() {}
+  fn it_updated_metrics() {
+    let labels = DockerMetricLabels {
+      ..Default::default()
+    };
+    let metrics = DockerMetrics::new();
+
+    assert_eq!(
+      metrics
+        .state_running_boolean
+        .metric
+        .get_or_create(&labels)
+        .get(),
+      0
+    );
+
+    metrics.update(Vec::from([(
+      Some(ContainerState {
+        running: Some(true),
+        ..Default::default()
+      }),
+      None,
+    )]));
+
+    assert_eq!(
+      metrics
+        .state_running_boolean
+        .metric
+        .get_or_create(&labels)
+        .get(),
+      1
+    );
+  }
 }
