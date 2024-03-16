@@ -24,7 +24,8 @@ To get started with Docker-Exporter, follow these steps:
 docker run -d \
   --name docker-exporter \
   --restart always \
-  --port 9630:9630 \
+  -p 9630:9630 \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
   patrickap/docker-exporter:latest
 ```
 
@@ -38,6 +39,8 @@ services:
     image: patrickap/docker-exporter:latest
     restart: always
     ports: 9630:9630
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
 ```
 
 2. The metrics are now available at `localhost:9630/metrics`
