@@ -27,6 +27,10 @@ pub trait DockerExt {
     }
   }
 
+  async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
+  async fn inspect_container_state(&self, name: &str) -> Option<ContainerState>;
+  async fn stats_once(&self, name: &str) -> Option<Stats>;
+
   #[cfg(test)]
   fn try_connect_mock() -> Result<Docker, Error> {
     // This is currently sufficient for a test as it returns Ok even if the socket is unavailable
@@ -34,15 +38,7 @@ pub trait DockerExt {
   }
 }
 
-impl DockerExt for Docker {}
-
-pub trait DockerContainerExt {
-  async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
-  async fn inspect_container_state(&self, name: &str) -> Option<ContainerState>;
-  async fn stats_once(&self, name: &str) -> Option<Stats>;
-}
-
-impl DockerContainerExt for Docker {
+impl DockerExt for Docker {
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>> {
     self
       .list_containers(Some(ListContainersOptions::<&str> {
