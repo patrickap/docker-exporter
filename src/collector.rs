@@ -80,7 +80,7 @@ pub struct DockerMetrics {
   pub state_running_boolean: Metric<Family<DockerMetricLabels, Gauge<i64, AtomicI64>>>,
   pub cpu_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
   pub memory_usage_bytes: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  pub memory_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
+  pub memory_limit_bytes: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
   pub memory_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
   pub block_io_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
   pub block_io_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
@@ -102,7 +102,7 @@ impl Metrics for DockerMetrics {
     registry.register_metric(&self.state_running_boolean);
     registry.register_metric(&self.cpu_utilization_percent);
     registry.register_metric(&self.memory_usage_bytes);
-    registry.register_metric(&self.memory_bytes_total);
+    registry.register_metric(&self.memory_limit_bytes);
     registry.register_metric(&self.memory_utilization_percent);
     registry.register_metric(&self.block_io_tx_bytes_total);
     registry.register_metric(&self.block_io_rx_bytes_total);
@@ -150,13 +150,12 @@ impl Metrics for DockerMetrics {
                 .set(memory_usage as f64);
             }
 
-            if let Some(memory_total) = stats.memory_total() {
+            if let Some(memory_limit) = stats.memory_limit() {
               self
-                .memory_bytes_total
+                .memory_limit_bytes
                 .metric
                 .get_or_create(&labels)
-                .inner()
-                .set(memory_total as f64);
+                .set(memory_limit as f64);
             }
 
             if let Some(memory_utilization) = stats.memory_utilization() {
@@ -227,7 +226,11 @@ impl Default for DockerMetrics {
         "memory usage in bytes",
         Default::default(),
       ),
-      memory_bytes_total: Metric::new("memory_bytes", "memory total in bytes", Default::default()),
+      memory_limit_bytes: Metric::new(
+        "memory_limit_bytes",
+        "memory limit in bytes",
+        Default::default(),
+      ),
       memory_utilization_percent: Metric::new(
         "memory_utilization_percent",
         "memory utilization in percent",

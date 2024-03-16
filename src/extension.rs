@@ -92,7 +92,7 @@ pub trait DockerStatsExt {
   fn cpu_count(&self) -> Option<u64>;
   fn cpu_utilization(&self) -> Option<f64>;
   fn memory_usage(&self) -> Option<u64>;
-  fn memory_total(&self) -> Option<u64>;
+  fn memory_limit(&self) -> Option<u64>;
   fn memory_utilization(&self) -> Option<f64>;
   fn block_io_total(&self) -> Option<(u64, u64)>;
   fn block_io_tx_total(&self) -> Option<u64>;
@@ -142,12 +142,12 @@ impl DockerStatsExt for Stats {
     Some(self.memory_stats.usage? - memory_cache)
   }
 
-  fn memory_total(&self) -> Option<u64> {
+  fn memory_limit(&self) -> Option<u64> {
     self.memory_stats.limit
   }
 
   fn memory_utilization(&self) -> Option<f64> {
-    Some((self.memory_usage()? as f64 / self.memory_total()? as f64) * 100.0)
+    Some((self.memory_usage()? as f64 / self.memory_limit()? as f64) * 100.0)
   }
 
   fn block_io_total(&self) -> Option<(u64, u64)> {
