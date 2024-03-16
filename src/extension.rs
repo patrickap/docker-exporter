@@ -6,11 +6,13 @@ use bollard::{
   secret::{ContainerState, ContainerSummary},
   Docker,
 };
-use futures::{StreamExt, TryStreamExt};
+use futures::{Future, StreamExt, TryStreamExt};
+use prometheus_client::registry::{self, Registry};
 use std::env;
 
-use crate::constant::{
-  DOCKER_API_VERSION, DOCKER_CONNECTION_TIMEOUT, DOCKER_HOST_ENV, DOCKER_SOCKET_PATH,
+use crate::{
+  collector::Metric,
+  constant::{DOCKER_API_VERSION, DOCKER_CONNECTION_TIMEOUT, DOCKER_HOST_ENV, DOCKER_SOCKET_PATH},
 };
 
 pub trait DockerExt {
@@ -28,8 +30,11 @@ pub trait DockerExt {
   }
 
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
-  async fn inspect_container_state(&self, name: &str) -> Option<ContainerState>;
-  async fn stats_once(&self, name: &str) -> Option<Stats>;
+  fn inspect_container_state(
+    &self,
+    name: &str,
+  ) -> impl Future<Output = Option<ContainerState>> + Send;
+  fn stats_once(&self, name: &str) -> impl Future<Output = Option<Stats>> + Send;
 
   #[cfg(test)]
   fn try_connect_mock() -> Result<Docker, Error> {
@@ -181,5 +186,18 @@ impl DockerStatsExt for Stats {
   fn network_rx_total(&self) -> Option<u64> {
     let (_, rx) = self.network_total()?;
     Some(rx)
+  }
+}
+
+pub trait RegistryExt {
+  fn register_metric(&mut self, metric: &Metric<impl registry::Metric + Clone>);
+}
+
+impl RegistryExt for Registry {
+  fn register_metric(
+    &mut self,
+    Metric { name, help, metric }: &Metric<impl registry::Metric + Clone>,
+  ) {
+    self.register(name, help, metric.clone())
   }
 }
