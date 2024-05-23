@@ -99,7 +99,6 @@ impl DockerExt for Docker {
 }
 
 pub trait DockerStatsExt {
-  fn id(&self) -> Option<String>;
   fn name(&self) -> Option<String>;
   fn cpu_delta(&self) -> Option<u64>;
   fn cpu_delta_system(&self) -> Option<u64>;
@@ -117,10 +116,6 @@ pub trait DockerStatsExt {
 }
 
 impl DockerStatsExt for Stats {
-  fn id(&self) -> Option<String> {
-    Some(String::from(&self.id))
-  }
-
   fn name(&self) -> Option<String> {
     Some(String::from(&self.name[1..]))
   }

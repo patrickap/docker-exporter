@@ -112,11 +112,9 @@ impl Metrics for DockerMetrics {
 
   fn update(&self, input: Self::Input) {
     for (state, stats) in input {
-      let id = stats.as_ref().and_then(|s| s.id());
       let name = stats.as_ref().and_then(|s| s.name());
-      let labels = match (id, name) {
-        (Some(id), Some(name)) => Some(DockerMetricLabels {
-          container_id: id,
+      let labels = match name {
+        Some(name) => Some(DockerMetricLabels {
           container_name: name,
         }),
         _ => None,
@@ -262,7 +260,6 @@ impl Default for DockerMetrics {
 
 #[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
 pub struct DockerMetricLabels {
-  pub container_id: String,
   pub container_name: String,
 }
 
