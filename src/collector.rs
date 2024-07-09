@@ -73,6 +73,7 @@ pub trait Metrics {
   type Input: From<<Self::Origin as Collector>::Output>;
 
   fn register(&self, registry: &mut Registry);
+  fn clear(&self);
   fn update(&self, input: Self::Input);
 }
 
@@ -108,6 +109,18 @@ impl Metrics for DockerMetrics {
     registry.register_metric(&self.block_io_rx_bytes_total);
     registry.register_metric(&self.network_tx_bytes_total);
     registry.register_metric(&self.network_rx_bytes_total);
+  }
+
+  fn clear(&self) {
+    self.state_running_boolean.metric.clear();
+    self.cpu_utilization_percent.metric.clear();
+    self.memory_usage_bytes.metric.clear();
+    self.memory_limit_bytes.metric.clear();
+    self.memory_utilization_percent.metric.clear();
+    self.block_io_tx_bytes_total.metric.clear();
+    self.block_io_rx_bytes_total.metric.clear();
+    self.network_tx_bytes_total.metric.clear();
+    self.network_rx_bytes_total.metric.clear();
   }
 
   fn update(&self, input: Self::Input) {

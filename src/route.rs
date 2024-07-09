@@ -19,6 +19,7 @@ where
   <M as Metrics>::Input: From<<C as Collector>::Output>,
 {
   let result = collector.collect().await;
+  metrics.clear();
   metrics.update(result.into());
 
   let mut buffer = String::new();
@@ -79,6 +80,10 @@ mod tests {
       fn register(&self, registry: &mut Registry) {
         registry.register_metric(&self.gauge_metric_test);
         registry.register_metric(&self.counter_metric_test);
+      }
+      fn clear(&self) {
+        self.gauge_metric_test.metric.clear();
+        self.counter_metric_test.metric.clear();
       }
       fn update(&self, input: Self::Input) {
         self
