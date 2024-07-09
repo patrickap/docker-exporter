@@ -2,21 +2,21 @@ IMAGE_NAME=patrickap/docker-exporter
 IMAGE_VERSION="$$(cat VERSION)"
 
 release-patch:
+	$(call increment-version,patch)
 	$(MAKE) docker-build
 	$(MAKE) docker-publish
-	$(call increment-version,patch)
 	$(MAKE) git-publish
 
 release-minor:
+	$(call increment-version,minor)
 	$(MAKE) docker-build
 	$(MAKE) docker-publish
-	$(call increment-version,minor)
 	$(MAKE) git-publish
 
 release-major:
+	$(call increment-version,major)
 	$(MAKE) docker-build
 	$(MAKE) docker-publish
-	$(call increment-version,major)
 	$(MAKE) git-publish
 
 docker-build:
