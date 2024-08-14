@@ -25,7 +25,7 @@ docker-publish:
 [private]
 git-publish:
   @git add . -- ':!{{PROJECT_VERSION}}.bak'
-  @git commit -m "chore(release): $(just get_version)"
+  @git commit -m "chore(release): v$(just get_version)"
   @git push
   @git tag -a "v$(just get_version)" -m "Release v$(just get_version)"
   @git push --tags origin
