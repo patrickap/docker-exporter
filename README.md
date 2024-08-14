@@ -44,3 +44,7 @@ services:
 ```
 
 2. The metrics are now available at `localhost:9630/metrics`
+
+## Contribution
+
+To start the local development server, execute `cargo run`. You can access the metrics by navigating to `http://0.0.0.0:9630/metrics` in your browser. To run the tests, use the command `cargo test`. For building and releasing the Docker image, run `just release <patch|minor|major>`, which will automatically increment the version.

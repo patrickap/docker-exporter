@@ -19,14 +19,16 @@ restore_version:
 
 [private]
 docker-publish:
-  @docker build --no-cache -t {{PROJECT_NAME}}:$(just get_version) .				
-  @docker push {{PROJECT_NAME}}:$(just get_version)
+  @docker build --no-cache -t {{PROJECT_NAME}}:v$(just get_version) .				
+  @docker push {{PROJECT_NAME}}:v$(just get_version)
 
 [private]
 git-publish:
   @git add . -- ':!{{PROJECT_VERSION}}.bak'
   @git commit -m "chore(release): $(just get_version)"
   @git push
+  @git tag -a "v$(just get_version)" -m "Release v$(just get_version)"
+  @git push --tags origin
 
 [private]
 clean_up:
