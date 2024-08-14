@@ -1,4 +1,4 @@
-FROM rust:1.76.0-slim as builder
+FROM rust:1.80.1-slim as builder
 
 WORKDIR /build
 COPY . .
@@ -6,7 +6,7 @@ COPY . .
 RUN rustup target add x86_64-unknown-linux-musl \
     && cargo build --release --target x86_64-unknown-linux-musl
 
-FROM alpine:3.19.1
+FROM alpine:3.20
 
 ARG UID="1234" \
     GID="1234"
@@ -19,7 +19,7 @@ COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/docker-expor
 
 RUN apk update \
     && apk add \
-      shadow~=4.14.2 \
+      shadow~=4.15.1 \
       su-exec~=0.2 \
     && addgroup -S -g $GID dex \
     && adduser -S -H -D -s /bin/sh -u $UID -G dex dex \
