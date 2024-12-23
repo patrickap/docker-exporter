@@ -49,12 +49,6 @@ pub trait DockerExt {
     name: &str,
   ) -> impl Future<Output = Option<ContainerState>> + Send;
   fn stats_once(&self, name: &str) -> impl Future<Output = Option<Stats>> + Send;
-
-  #[cfg(test)]
-  fn try_connect_mock() -> Result<Docker, Error> {
-    // This is currently sufficient for a test as it returns Ok even if the socket is unavailable
-    Docker::connect_with_socket("/dev/null", 0, DOCKER_API_VERSION)
-  }
 }
 
 impl DockerExt for Docker {
