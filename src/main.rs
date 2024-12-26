@@ -10,15 +10,13 @@ use std::{error::Error, sync::Arc};
 use tokio::{net::TcpListener, signal};
 
 use crate::{
-  collector::{DockerCollector, DockerMetrics, Metrics},
+  collector::DockerCollector,
   constant::{PROMETHEUS_REGISTRY_PREFIX, SERVER_ADDRESS},
   extension::DockerExt,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-  let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
-
   let docker = match Docker::try_connect() {
     Ok(docker) => Ok(docker),
     Err(err) => {
@@ -27,23 +25,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
   }?;
 
-  let collector = DockerCollector::new(Arc::new(docker));
+  let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
 
-  let metrics = DockerMetrics::new();
-  metrics.register(&mut registry);
+  registry.register_collector(Box::new(DockerCollector::new(docker)));
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
+
   let router = Router::new()
     .route("/status", routing::get(route::status))
-    .route(
-      "/metrics",
-      routing::get(route::metrics::<DockerCollector<Docker>, DockerMetrics>),
-    )
-    .layer(Extension(Arc::new(registry)))
-    .layer(Extension(Arc::new(collector)))
-    .layer(Extension(Arc::new(metrics)));
+    .route("/metrics", routing::get(route::metrics))
+    .layer(Extension(Arc::new(registry)));
 
   println!("server listening on {}", listener.local_addr()?);
+
   axum::serve(listener, router)
     .with_graceful_shutdown(async {
       if let Ok(_) = signal::ctrl_c().await {
