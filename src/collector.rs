@@ -17,6 +17,7 @@ impl DockerCollector {
   }
 
   async fn collect(&self) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: implement collecting of metrics
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
     Ok(())
   }
@@ -32,6 +33,7 @@ impl Collector for DockerCollector {
         .unwrap()
     });
 
+    // TODO: for all metrics do the following
     let counter = ConstCounter::new(42);
     let metric_encoder =
       encoder.encode_descriptor("my_counter", "some help", None, counter.metric_type())?;
