@@ -24,6 +24,7 @@ impl DockerCollector {
 
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
+    // TODO: how to get data back from thread?
     let metrics = task::block_in_place(move || {
       Handle::current()
         .block_on(async move { self.collect().await })
