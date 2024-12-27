@@ -17,44 +17,31 @@ impl DockerCollector {
     return Self { docker };
   }
 
-  async fn collect(&self) -> Result<Vec<DockerMetric>, Box<dyn Error>> {
-    // TODO: implement collecting of metrics
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    let state_metrics = self.get_state_metrics();
-    Ok(state_metrics)
-  }
-
-  fn get_state_metrics(&self) -> Vec<DockerMetric> {
-    let labels = DockerMetricLabels {
-      container_name: "asd".to_string(),
-    };
-
-    let labels2 = DockerMetricLabels {
-      container_name: "asd".to_string(),
-    };
-
+  async fn get_state_metrics<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
     let metric = ConstCounter::new(42);
     let metric2 = ConstCounter::new(84);
 
-    vec![
+    Ok(Vec::from([
       DockerMetric {
         name: "metric",
         help: "help",
         metric: Box::new(metric),
-        labels: labels,
       },
       DockerMetric {
         name: "metric2",
         help: "help2",
         metric: Box::new(metric2),
-        labels: labels2,
       },
-    ]
+    ]))
   }
-  fn get_cpu_metrics(&self) {}
-  fn get_memory_metrics(&self) {}
-  fn get_block_metrics(&self) {}
-  fn get_network_metrics(&self) {}
+
+  async fn get_cpu_metrics(&self) {}
+
+  async fn get_memory_metrics(&self) {}
+
+  async fn get_block_metrics(&self) {}
+
+  async fn get_network_metrics(&self) {}
 }
 
 // TODO: do not unwrap
@@ -65,13 +52,17 @@ impl Collector for DockerCollector {
       // Reentering the async context.
       Handle::current()
         .block_on(async move {
-          let metrics = self.collect().await?;
+          let labels = DockerMetricLabels {
+            container_name: "container_name".to_string(),
+          };
+
+          let metrics = self.get_state_metrics().await?;
 
           metrics.iter().for_each(|metric| {
             let mut metric_encoder = encoder
               .encode_descriptor(metric.name, metric.help, None, metric.metric.metric_type())
               .unwrap();
-            let metric_encoder = metric_encoder.encode_family(&metric.labels).unwrap();
+            let metric_encoder = metric_encoder.encode_family(&labels).unwrap();
 
             metric.metric.encode(metric_encoder).unwrap();
           });
@@ -85,11 +76,10 @@ impl Collector for DockerCollector {
   }
 }
 
-pub struct DockerMetric {
-  name: &'static str,
-  help: &'static str,
-  metric: Box<dyn EncodeMetric + 'static>,
-  labels: DockerMetricLabels,
+pub struct DockerMetric<'a> {
+  name: &'a str,
+  help: &'a str,
+  metric: Box<dyn EncodeMetric + 'a>,
 }
 
 #[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
