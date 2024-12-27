@@ -1,8 +1,8 @@
 use bollard::Docker;
 use prometheus_client::{
   collector::Collector,
-  encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric},
-  metrics::counter::ConstCounter,
+  encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric, MetricEncoder},
+  metrics::{counter::ConstCounter, MetricType, TypedMetric},
 };
 use std::error::Error;
 use tokio::{runtime::Handle, task};
@@ -17,13 +17,40 @@ impl DockerCollector {
     return Self { docker };
   }
 
-  async fn collect(&self) -> Result<(), Box<dyn Error>> {
+  async fn collect(&self) -> Result<Vec<DockerMetric>, Box<dyn Error>> {
     // TODO: implement collecting of metrics
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    Ok(())
+    let state_metrics = self.get_state_metrics();
+    Ok(state_metrics)
   }
 
-  fn get_state_metrics(&self) {}
+  fn get_state_metrics(&self) -> Vec<DockerMetric> {
+    let labels = DockerMetricLabels {
+      container_name: "asd".to_string(),
+    };
+
+    let labels2 = DockerMetricLabels {
+      container_name: "asd".to_string(),
+    };
+
+    let metric = ConstCounter::new(42);
+    let metric2 = ConstCounter::new(84);
+
+    vec![
+      DockerMetric {
+        name: "metric",
+        help: "help",
+        metric: Box::new(metric),
+        labels: labels,
+      },
+      DockerMetric {
+        name: "metric2",
+        help: "help2",
+        metric: Box::new(metric2),
+        labels: labels2,
+      },
+    ]
+  }
   fn get_cpu_metrics(&self) {}
   fn get_memory_metrics(&self) {}
   fn get_block_metrics(&self) {}
@@ -38,15 +65,14 @@ impl Collector for DockerCollector {
         .block_on(async move {
           let metrics = self.collect().await?;
 
-          // TODO: for all metrics do the following
-          let counter = ConstCounter::new(42);
-          let labels = DockerMetricLabels {
-            container_name: "asd".to_string(),
-          };
-          let mut metric_encoder =
-            encoder.encode_descriptor("my_counter", "some help", None, counter.metric_type())?;
-          let result = metric_encoder.encode_family(&labels)?;
-          counter.encode(result)?;
+          metrics.iter().for_each(|metric| {
+            let mut metric_encoder = encoder
+              .encode_descriptor(metric.name, metric.help, None, metric.metric.metric_type())
+              .unwrap();
+            let metric_encoder = metric_encoder.encode_family(&metric.labels).unwrap();
+
+            metric.metric.encode(metric_encoder).unwrap();
+          });
 
           Ok::<(), Box<dyn std::error::Error>>(())
         })
@@ -55,6 +81,13 @@ impl Collector for DockerCollector {
 
     Ok(())
   }
+}
+
+pub struct DockerMetric {
+  name: &'static str,
+  help: &'static str,
+  metric: Box<dyn EncodeMetric + 'static>,
+  labels: DockerMetricLabels,
 }
 
 #[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
