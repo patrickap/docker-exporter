@@ -60,7 +60,9 @@ impl DockerCollector {
 // TODO: do not unwrap
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
+    // Blocking is required as the method is not available as async.
     task::block_in_place(move || {
+      // Reentering the async context.
       Handle::current()
         .block_on(async move {
           let metrics = self.collect().await?;
