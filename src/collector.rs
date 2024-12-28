@@ -1,4 +1,7 @@
-use bollard::Docker;
+use bollard::{
+  secret::{ContainerState, HealthStatusEnum},
+  Docker,
+};
 use futures::future::{self};
 use prometheus_client::{
   collector::Collector,
@@ -8,7 +11,7 @@ use prometheus_client::{
 use std::{error::Error, sync::Arc};
 use tokio::{runtime::Handle, task};
 
-use crate::extension::{DockerExt, DockerStatsExt};
+use crate::extension::DockerExt;
 
 #[derive(Debug)]
 pub struct DockerCollector {
@@ -22,8 +25,8 @@ impl DockerCollector {
     };
   }
 
-  // TODO: move logic into smaller functions -> do one thing well
-  async fn metrics<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
+  // TODO: move labels declaration to correct place for each container
+  async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
     let docker = Arc::clone(&self.docker);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
@@ -39,40 +42,60 @@ impl DockerCollector {
     });
 
     let metrics = future::try_join_all(tasks)
-      .await
-      .unwrap_or_default()
+      .await?
       .into_iter()
       .flat_map(|(state, stats)| {
-        Vec::from([
-          DockerMetric::new(
-            "name1",
-            "help1",
-            ConstGauge::new(
-              stats
-                .as_ref()
-                .and_then(|s| s.cpu_utilization())
-                .unwrap_or_default(),
-            ),
-          ),
-          DockerMetric::new(
-            "name2",
-            "help2",
-            ConstGauge::new(
-              stats
-                .as_ref()
-                .and_then(|s| s.cpu_utilization())
-                .unwrap_or_default(),
-            ),
-          ),
-        ])
+        Vec::from(
+          [
+            self.state_metrics(state.as_ref()),
+            // self.cpu_metrics(stats.as_ref()),
+            // self.memory_metrics(stats.as_ref()),
+            // self.block_metrics(stats.as_ref()),
+            // self.network_metrics(stats.as_ref()),
+          ]
+          .into_iter()
+          .fold(Vec::new(), |mut acc, mut curr| {
+            acc.append(&mut curr);
+            acc
+          }),
+        )
       })
       .collect();
 
     Ok(metrics)
   }
+
+  fn state_metrics<'a>(&self, state: Option<&ContainerState>) -> Vec<DockerMetric<'a>> {
+    let running = state.and_then(|s| s.running).unwrap_or_default() as i64;
+    let healthy = state
+      .and_then(|s| s.health.as_ref())
+      .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))
+      .unwrap_or_default() as i64;
+
+    Vec::from([
+      DockerMetric::new(
+        "state_running_boolean",
+        "state running as boolean (1 = true, 0 = false)",
+        ConstGauge::new(running),
+      ),
+      DockerMetric::new(
+        "state_healthy_boolean",
+        "state healthy as boolean (1 = true, 0 = false)",
+        ConstGauge::new(healthy),
+      ),
+    ])
+  }
+
+  // fn cpu_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+
+  // fn memory_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+
+  // fn block_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+
+  // fn network_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
 }
 
-// TODO: do not unwrap
+// TODO: do not unwrap if possible
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
     // Blocking is required as encode is not available as async function.
@@ -84,7 +107,7 @@ impl Collector for DockerCollector {
             container_name: "container_name".to_string(),
           };
 
-          let metrics = self.metrics().await.unwrap();
+          let metrics = self.collect().await.unwrap();
 
           metrics.iter().for_each(|metric| {
             let mut metric_encoder = encoder
