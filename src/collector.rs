@@ -14,6 +14,9 @@ use tokio::{runtime::Handle, task};
 
 use crate::extension::DockerExt;
 
+// TODO: move labels declaration to correct place for each container
+// TODO: do not unwrap if possible. when use ? vs unwrap? check all
+
 #[derive(Debug)]
 pub struct DockerCollector {
   docker: Arc<Docker>,
@@ -26,7 +29,6 @@ impl DockerCollector {
     };
   }
 
-  // TODO: move labels declaration to correct place for each container
   async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
     let docker = Arc::clone(&self.docker);
     let containers = docker.list_containers_all().await.unwrap_or_default();
@@ -185,7 +187,6 @@ impl DockerCollector {
   }
 }
 
-// TODO: do not unwrap if possible
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
     // Blocking is required as encode is not available as async function.
