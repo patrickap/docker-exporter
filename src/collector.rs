@@ -67,12 +67,12 @@ impl DockerCollector {
   }
 
   fn state_metrics<'a>(&self, state: Option<&ContainerState>) -> Option<Vec<DockerMetric<'a>>> {
-    let running = state.and_then(|s| s.running).unwrap_or_default() as i64;
+    let running = state?.running? as i64;
 
-    let healthy = state
-      .and_then(|s| s.health.as_ref())
-      .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))
-      .unwrap_or_default() as i64;
+    let healthy = state?
+      .health
+      .as_ref()
+      .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))? as i64;
 
     Some(Vec::from([
       DockerMetric::new(
