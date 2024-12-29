@@ -1,5 +1,5 @@
 use bollard::{
-  container::Stats,
+  container::{MemoryStatsStats, Stats},
   secret::{ContainerState, HealthStatusEnum},
   Docker,
 };
@@ -50,9 +50,9 @@ impl DockerCollector {
           [
             self.state_metrics(state.as_ref()).unwrap_or_default(),
             self.cpu_metrics(stats.as_ref()).unwrap_or_default(),
-            // self.memory_metrics(stats.as_ref()),
-            // self.block_metrics(stats.as_ref()),
-            // self.network_metrics(stats.as_ref()),
+            self.memory_metrics(stats.as_ref()).unwrap_or_default(),
+            // self.block_metrics(stats.as_ref()).unwrap_or_default(),
+            // self.network_metrics(stats.as_ref()).unwrap_or_default(),
           ]
           .into_iter()
           .fold(Vec::new(), |mut acc, mut curr| {
@@ -106,7 +106,36 @@ impl DockerCollector {
     )]))
   }
 
-  // fn memory_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
+  fn memory_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {
+    let memory_usage = match stats?.memory_stats.stats? {
+      MemoryStatsStats::V1(memory_stats) => stats?.memory_stats.usage? - memory_stats.cache,
+      // In cgroup v2, Docker doesn't provide a cache property
+      // Unfortunately, there's no simple way to differentiate cache from memory usage
+      MemoryStatsStats::V2(_) => stats?.memory_stats.usage?,
+    };
+
+    let memory_limit = stats?.memory_stats.limit?;
+
+    let memory_utilization = (memory_usage as f64 / memory_limit as f64) * 100.0;
+
+    Some(Vec::from([
+      DockerMetric::new(
+        "memory_usage_bytes",
+        "memory usage in bytes",
+        ConstGauge::new(memory_usage as f64),
+      ),
+      DockerMetric::new(
+        "memory_limit_bytes",
+        "memory limit in bytes",
+        ConstGauge::new(memory_limit as f64),
+      ),
+      DockerMetric::new(
+        "memory_utilization_percent",
+        "memory utilization in percent",
+        ConstGauge::new(memory_utilization),
+      ),
+    ]))
+  }
 
   // fn block_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
 
