@@ -7,7 +7,7 @@ use futures::future::{self};
 use prometheus_client::{
   collector::Collector,
   encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric},
-  metrics::gauge::ConstGauge,
+  metrics::{counter::ConstCounter, gauge::ConstGauge},
 };
 use std::{error::Error, sync::Arc};
 use tokio::{runtime::Handle, task};
@@ -51,8 +51,8 @@ impl DockerCollector {
             self.state_metrics(state.as_ref()).unwrap_or_default(),
             self.cpu_metrics(stats.as_ref()).unwrap_or_default(),
             self.memory_metrics(stats.as_ref()).unwrap_or_default(),
-            // self.block_metrics(stats.as_ref()).unwrap_or_default(),
-            // self.network_metrics(stats.as_ref()).unwrap_or_default(),
+            self.block_metrics(stats.as_ref()).unwrap_or_default(),
+            self.network_metrics(stats.as_ref()).unwrap_or_default(),
           ]
           .into_iter()
           .fold(Vec::new(), |mut acc, mut curr| {
@@ -137,9 +137,52 @@ impl DockerCollector {
     ]))
   }
 
-  // fn block_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
+  fn block_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {
+    let (block_io_tx, block_io_rx) = stats?
+      .blkio_stats
+      .io_service_bytes_recursive
+      .as_ref()?
+      .iter()
+      .fold(Some((0, 0)), |acc, io| match io.op.as_str() {
+        "write" => Some((acc?.0 + io.value, acc?.1)),
+        "read" => Some((acc?.0, acc?.1 + io.value)),
+        _ => acc,
+      })?;
 
-  // fn network_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
+    Some(Vec::from([
+      DockerMetric::new(
+        "block_io_tx_bytes",
+        "block io written total in bytes",
+        ConstCounter::new(block_io_tx),
+      ),
+      DockerMetric::new(
+        "block_io_rx_bytes",
+        "block io read total in bytes",
+        ConstCounter::new(block_io_rx),
+      ),
+    ]))
+  }
+
+  fn network_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {
+    let (network_tx, network_rx) = stats?
+      .networks
+      .as_ref()?
+      .get("eth0")
+      .map(|n| (n.tx_bytes, n.rx_bytes))?;
+
+    Some(Vec::from([
+      DockerMetric::new(
+        "network_tx_bytes",
+        "network sent total in bytes",
+        ConstCounter::new(network_tx),
+      ),
+      DockerMetric::new(
+        "network_rx_bytes",
+        "network received total in bytes",
+        ConstCounter::new(network_rx),
+      ),
+    ]))
+  }
 }
 
 // TODO: do not unwrap if possible
