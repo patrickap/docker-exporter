@@ -1,4 +1,5 @@
 use bollard::{
+  container::Stats,
   secret::{ContainerState, HealthStatusEnum},
   Docker,
 };
@@ -47,8 +48,8 @@ impl DockerCollector {
       .flat_map(|(state, stats)| {
         Vec::from(
           [
-            self.state_metrics(state.as_ref()),
-            // self.cpu_metrics(stats.as_ref()),
+            self.state_metrics(state.as_ref()).unwrap_or_default(),
+            self.cpu_metrics(stats.as_ref()).unwrap_or_default(),
             // self.memory_metrics(stats.as_ref()),
             // self.block_metrics(stats.as_ref()),
             // self.network_metrics(stats.as_ref()),
@@ -65,14 +66,15 @@ impl DockerCollector {
     Ok(metrics)
   }
 
-  fn state_metrics<'a>(&self, state: Option<&ContainerState>) -> Vec<DockerMetric<'a>> {
+  fn state_metrics<'a>(&self, state: Option<&ContainerState>) -> Option<Vec<DockerMetric<'a>>> {
     let running = state.and_then(|s| s.running).unwrap_or_default() as i64;
+
     let healthy = state
       .and_then(|s| s.health.as_ref())
       .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))
       .unwrap_or_default() as i64;
 
-    Vec::from([
+    Some(Vec::from([
       DockerMetric::new(
         "state_running_boolean",
         "state running as boolean (1 = true, 0 = false)",
@@ -83,16 +85,32 @@ impl DockerCollector {
         "state healthy as boolean (1 = true, 0 = false)",
         ConstGauge::new(healthy),
       ),
-    ])
+    ]))
   }
 
-  // fn cpu_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+  fn cpu_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {
+    let cpu_delta =
+      stats?.cpu_stats.cpu_usage.total_usage - stats?.precpu_stats.cpu_usage.total_usage;
 
-  // fn memory_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+    let cpu_delta_system =
+      stats?.cpu_stats.system_cpu_usage? - stats?.precpu_stats.system_cpu_usage?;
 
-  // fn block_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+    let cpu_count = stats?.cpu_stats.online_cpus?;
 
-  // fn network_metrics<'a>(&self, stats: Option<&Stats>) -> Vec<DockerMetric<'a>> {}
+    let cpu_utilization = (cpu_delta as f64 / cpu_delta_system as f64) * cpu_count as f64 * 100.0;
+
+    Some(Vec::from([DockerMetric::new(
+      "cpu_utilization_percent",
+      "cpu utilization in percent",
+      ConstGauge::new(cpu_utilization),
+    )]))
+  }
+
+  // fn memory_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
+
+  // fn block_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
+
+  // fn network_metrics<'a>(&self, stats: Option<&Stats>) -> Option<Vec<DockerMetric<'a>>> {}
 }
 
 // TODO: do not unwrap if possible
