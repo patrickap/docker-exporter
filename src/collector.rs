@@ -79,12 +79,14 @@ impl DockerCollector {
       DockerMetric::new(
         "state_running_boolean",
         "state running as boolean (1 = true, 0 = false)",
-        ConstGauge::new(running),
+        Box::new(ConstGauge::new(running)),
+        None,
       ),
       DockerMetric::new(
         "state_healthy_boolean",
         "state healthy as boolean (1 = true, 0 = false)",
-        ConstGauge::new(healthy),
+        Box::new(ConstGauge::new(healthy)),
+        None,
       ),
     ]))
   }
@@ -103,7 +105,8 @@ impl DockerCollector {
     Some(Vec::from([DockerMetric::new(
       "cpu_utilization_percent",
       "cpu utilization in percent",
-      ConstGauge::new(cpu_utilization),
+      Box::new(ConstGauge::new(cpu_utilization)),
+      None,
     )]))
   }
 
@@ -123,17 +126,20 @@ impl DockerCollector {
       DockerMetric::new(
         "memory_usage_bytes",
         "memory usage in bytes",
-        ConstGauge::new(memory_usage as f64),
+        Box::new(ConstGauge::new(memory_usage as f64)),
+        None,
       ),
       DockerMetric::new(
         "memory_limit_bytes",
         "memory limit in bytes",
-        ConstGauge::new(memory_limit as f64),
+        Box::new(ConstGauge::new(memory_limit as f64)),
+        None,
       ),
       DockerMetric::new(
         "memory_utilization_percent",
         "memory utilization in percent",
-        ConstGauge::new(memory_utilization),
+        Box::new(ConstGauge::new(memory_utilization)),
+        None,
       ),
     ]))
   }
@@ -154,12 +160,14 @@ impl DockerCollector {
       DockerMetric::new(
         "block_io_tx_bytes",
         "block io written total in bytes",
-        ConstCounter::new(block_io_tx),
+        Box::new(ConstCounter::new(block_io_tx)),
+        None,
       ),
       DockerMetric::new(
         "block_io_rx_bytes",
         "block io read total in bytes",
-        ConstCounter::new(block_io_rx),
+        Box::new(ConstCounter::new(block_io_rx)),
+        None,
       ),
     ]))
   }
@@ -175,12 +183,14 @@ impl DockerCollector {
       DockerMetric::new(
         "network_tx_bytes",
         "network sent total in bytes",
-        ConstCounter::new(network_tx),
+        Box::new(ConstCounter::new(network_tx)),
+        None,
       ),
       DockerMetric::new(
         "network_rx_bytes",
         "network received total in bytes",
-        ConstCounter::new(network_rx),
+        Box::new(ConstCounter::new(network_rx)),
+        None,
       ),
     ]))
   }
