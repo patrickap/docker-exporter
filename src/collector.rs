@@ -241,20 +241,22 @@ impl Collector for DockerCollector {
           let metrics = self.recv_metrics().await.unwrap_or_default();
 
           metrics.iter().for_each(|metric| {
-            let mut metric_encoder = encoder
+            encoder
               .encode_descriptor(metric.name, metric.help, None, metric.metric.metric_type())
-              .unwrap();
-
-            let metric_encoder = metric_encoder
-              .encode_family(metric.labels.as_ref())
-              .unwrap();
-
-            metric.metric.encode(metric_encoder).unwrap();
+              .and_then(|mut e| {
+                e.encode_family(metric.labels.as_ref())?;
+                Ok(e)
+              })
+              .and_then(|e| {
+                metric.metric.encode(e)?;
+                Ok(())
+              })
+              .unwrap_or_default();
           });
 
           Ok::<(), Box<dyn std::error::Error>>(())
         })
-        .unwrap()
+        .unwrap_or_default()
     });
 
     Ok(())
