@@ -283,7 +283,7 @@ impl<'a> DockerMetric<'a> {
   }
 }
 
-#[derive(EncodeLabelSet, Default)]
+#[derive(EncodeLabelSet)]
 pub struct DockerMetricLabels {
   pub container_name: String,
 }
