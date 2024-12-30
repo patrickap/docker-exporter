@@ -9,14 +9,12 @@ use prometheus_client::{
   encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric},
   metrics::{counter::ConstCounter, gauge::ConstGauge},
 };
-use std::{any::Any, error::Error, ops::Deref, rc::Rc, sync::Arc};
+use std::{error::Error, rc::Rc, sync::Arc};
 use tokio::{runtime::Handle, task};
 
 use crate::extension::DockerExt;
 
-// TODO: move labels declaration to correct place for each container
 // TODO: do not unwrap if possible. when use ? vs unwrap? check all
-// TODO: make passing of parameter clear so if arc or box pass this directly as parameter instead of wrapping inside the function
 
 #[derive(Debug)]
 pub struct DockerCollector {
@@ -28,7 +26,7 @@ impl DockerCollector {
     return Self { docker };
   }
 
-  async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
+  pub async fn recv_metrics<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
     let docker = Arc::clone(&self.docker);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
@@ -240,7 +238,7 @@ impl Collector for DockerCollector {
       // Reentering the async context for gathering the metrics.
       Handle::current()
         .block_on(async move {
-          let metrics = self.collect().await.unwrap();
+          let metrics = self.recv_metrics().await.unwrap_or_default();
 
           metrics.iter().for_each(|metric| {
             let mut metric_encoder = encoder
