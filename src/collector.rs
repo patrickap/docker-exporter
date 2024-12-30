@@ -9,7 +9,7 @@ use prometheus_client::{
   encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric},
   metrics::{counter::ConstCounter, gauge::ConstGauge},
 };
-use std::{any::Any, error::Error, rc::Rc, sync::Arc};
+use std::{any::Any, error::Error, ops::Deref, rc::Rc, sync::Arc};
 use tokio::{runtime::Handle, task};
 
 use crate::extension::DockerExt;
@@ -80,7 +80,7 @@ impl DockerCollector {
       .as_ref()
       .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))? as i64;
 
-    let labels: Arc<dyn EncodeLabelSet> = Arc::new(DockerMetricLabels {
+    let labels = Rc::new(DockerMetricLabels {
       container_name: stats?.name[1..].to_string(),
     });
 
@@ -89,13 +89,13 @@ impl DockerCollector {
         "state_running_boolean",
         "state running as boolean (1 = true, 0 = false)",
         Box::new(ConstGauge::new(running)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
       DockerMetric::new(
         "state_healthy_boolean",
         "state healthy as boolean (1 = true, 0 = false)",
         Box::new(ConstGauge::new(healthy)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
     ]))
   }
@@ -114,7 +114,7 @@ impl DockerCollector {
 
     let cpu_utilization = (cpu_delta as f64 / cpu_delta_system as f64) * cpu_count as f64 * 100.0;
 
-    let labels: Arc<dyn EncodeLabelSet> = Arc::new(DockerMetricLabels {
+    let labels = Rc::new(DockerMetricLabels {
       container_name: stats?.name[1..].to_string(),
     });
 
@@ -122,7 +122,7 @@ impl DockerCollector {
       "cpu_utilization_percent",
       "cpu utilization in percent",
       Box::new(ConstGauge::new(cpu_utilization)),
-      Some(Arc::clone(&labels)),
+      Rc::clone(&labels),
     )]))
   }
 
@@ -141,7 +141,7 @@ impl DockerCollector {
 
     let memory_utilization = (memory_usage as f64 / memory_limit as f64) * 100.0;
 
-    let labels: Arc<dyn EncodeLabelSet> = Arc::new(DockerMetricLabels {
+    let labels = Rc::new(DockerMetricLabels {
       container_name: stats?.name[1..].to_string(),
     });
 
@@ -150,19 +150,19 @@ impl DockerCollector {
         "memory_usage_bytes",
         "memory usage in bytes",
         Box::new(ConstGauge::new(memory_usage as f64)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
       DockerMetric::new(
         "memory_limit_bytes",
         "memory limit in bytes",
         Box::new(ConstGauge::new(memory_limit as f64)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
       DockerMetric::new(
         "memory_utilization_percent",
         "memory utilization in percent",
         Box::new(ConstGauge::new(memory_utilization)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
     ]))
   }
@@ -182,7 +182,7 @@ impl DockerCollector {
         _ => acc,
       })?;
 
-    let labels: Arc<dyn EncodeLabelSet> = Arc::new(DockerMetricLabels {
+    let labels = Rc::new(DockerMetricLabels {
       container_name: stats?.name[1..].to_string(),
     });
 
@@ -191,13 +191,13 @@ impl DockerCollector {
         "block_io_tx_bytes",
         "block io written total in bytes",
         Box::new(ConstCounter::new(block_io_tx)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
       DockerMetric::new(
         "block_io_rx_bytes",
         "block io read total in bytes",
         Box::new(ConstCounter::new(block_io_rx)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
     ]))
   }
@@ -212,7 +212,7 @@ impl DockerCollector {
       .get("eth0")
       .map(|n| (n.tx_bytes, n.rx_bytes))?;
 
-    let labels: Arc<dyn EncodeLabelSet> = Arc::new(DockerMetricLabels {
+    let labels = Rc::new(DockerMetricLabels {
       container_name: stats?.name[1..].to_string(),
     });
 
@@ -221,13 +221,13 @@ impl DockerCollector {
         "network_tx_bytes",
         "network sent total in bytes",
         Box::new(ConstCounter::new(network_tx)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
       DockerMetric::new(
         "network_rx_bytes",
         "network received total in bytes",
         Box::new(ConstCounter::new(network_rx)),
-        Some(Arc::clone(&labels)),
+        Rc::clone(&labels),
       ),
     ]))
   }
@@ -247,9 +247,9 @@ impl Collector for DockerCollector {
               .encode_descriptor(metric.name, metric.help, None, metric.metric.metric_type())
               .unwrap();
 
-            // TODO: pass labels here. if not working with arc is ther another way?
-            // let labels = metric.labels.as_ref().map(Arc::as_ref);
-            // let metric_encoder = metric_encoder.encode_family(labels).unwrap();
+            let metric_encoder = metric_encoder
+              .encode_family(metric.labels.as_ref())
+              .unwrap();
 
             metric.metric.encode(metric_encoder).unwrap();
           });
@@ -267,7 +267,7 @@ pub struct DockerMetric<'a> {
   name: &'a str,
   help: &'a str,
   metric: Box<dyn EncodeMetric + 'a>,
-  labels: Option<Arc<dyn EncodeLabelSet + 'a>>,
+  labels: Rc<DockerMetricLabels>,
 }
 
 impl<'a> DockerMetric<'a> {
@@ -275,7 +275,7 @@ impl<'a> DockerMetric<'a> {
     name: &'a str,
     help: &'a str,
     metric: Box<dyn EncodeMetric + 'a>,
-    labels: Option<Arc<dyn EncodeLabelSet + 'a>>,
+    labels: Rc<DockerMetricLabels>,
   ) -> Self {
     Self {
       name,
@@ -286,7 +286,7 @@ impl<'a> DockerMetric<'a> {
   }
 }
 
-#[derive(EncodeLabelSet)]
+#[derive(EncodeLabelSet, Default)]
 pub struct DockerMetricLabels {
   pub container_name: String,
 }
