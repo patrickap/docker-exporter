@@ -16,6 +16,7 @@ use crate::extension::DockerExt;
 
 // TODO: move labels declaration to correct place for each container
 // TODO: do not unwrap if possible. when use ? vs unwrap? check all
+// TODO: make passing of parameter clear so if arc or box pass this directly as parameter instead of wrapping inside the function
 
 #[derive(Debug)]
 pub struct DockerCollector {
