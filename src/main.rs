@@ -25,9 +25,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
   }?;
 
-  let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
+  let collector = DockerCollector::new(Arc::new(docker));
 
-  registry.register_collector(Box::new(DockerCollector::new(docker)));
+  let mut registry = Registry::with_prefix(PROMETHEUS_REGISTRY_PREFIX);
+  registry.register_collector(Box::new(collector));
 
   let listener = TcpListener::bind(SERVER_ADDRESS).await?;
 

@@ -24,10 +24,8 @@ pub struct DockerCollector {
 }
 
 impl DockerCollector {
-  pub fn new(docker: Docker) -> Self {
-    return Self {
-      docker: Arc::new(docker),
-    };
+  pub fn new(docker: Arc<Docker>) -> Self {
+    return Self { docker };
   }
 
   async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
@@ -223,14 +221,21 @@ pub struct DockerMetric<'a> {
   name: &'a str,
   help: &'a str,
   metric: Box<dyn EncodeMetric + 'a>,
+  labels: Option<Box<dyn EncodeLabelSet + 'a>>,
 }
 
 impl<'a> DockerMetric<'a> {
-  fn new(name: &'a str, help: &'a str, metric: impl EncodeMetric + 'a) -> Self {
+  fn new(
+    name: &'a str,
+    help: &'a str,
+    metric: Box<dyn EncodeMetric + 'a>,
+    labels: Option<Box<dyn EncodeLabelSet + 'a>>,
+  ) -> Self {
     Self {
       name,
       help,
-      metric: Box::new(metric),
+      metric,
+      labels,
     }
   }
 }
