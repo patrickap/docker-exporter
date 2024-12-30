@@ -14,8 +14,8 @@ use crate::constant::{
 pub trait DockerExt {
   fn try_connect() -> Result<Docker, Error>;
   async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>>;
-  async fn inspect_container_state(&self, container_name: &str) -> Option<ContainerState>;
-  async fn stats_once(&self, container_name: &str) -> Option<Stats>;
+  async fn inspect_container_state(&self, container_id: &str) -> Option<ContainerState>;
+  async fn stats_once(&self, container_id: &str) -> Option<Stats>;
 }
 
 impl DockerExt for Docker {
@@ -42,10 +42,10 @@ impl DockerExt for Docker {
       .ok()
   }
 
-  async fn inspect_container_state(&self, container_name: &str) -> Option<ContainerState> {
+  async fn inspect_container_state(&self, container_id: &str) -> Option<ContainerState> {
     self
       .inspect_container(
-        container_name,
+        container_id,
         Some(InspectContainerOptions {
           ..Default::default()
         }),
@@ -55,10 +55,10 @@ impl DockerExt for Docker {
       .and_then(|i| i.state)
   }
 
-  async fn stats_once(&self, container_name: &str) -> Option<Stats> {
+  async fn stats_once(&self, container_id: &str) -> Option<Stats> {
     self
       .stats(
-        container_name,
+        container_id,
         Some(StatsOptions {
           stream: false,
           ..Default::default()
