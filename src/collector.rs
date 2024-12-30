@@ -15,6 +15,8 @@ use tokio::{runtime::Handle, task};
 use crate::extension::DockerExt;
 
 // TODO: do not unwrap if possible. when use ? vs unwrap? check all
+// TODO: move metric methods outside collector as they do not need self or make them static
+// TODO: maybe move encoder processing outside method
 
 #[derive(Debug)]
 pub struct DockerCollector {
@@ -49,11 +51,11 @@ impl DockerCollector {
 
         Vec::from(
           [
-            self.state_metrics(args),
-            self.cpu_metrics(args),
-            self.memory_metrics(args),
-            self.block_metrics(args),
-            self.network_metrics(args),
+            Self::state_metrics(args),
+            Self::cpu_metrics(args),
+            Self::memory_metrics(args),
+            Self::block_metrics(args),
+            Self::network_metrics(args),
           ]
           .into_iter()
           .fold(Vec::new(), |mut acc, curr| {
@@ -68,7 +70,6 @@ impl DockerCollector {
   }
 
   fn state_metrics<'a>(
-    &self,
     (state, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
     let running = state?.running? as i64;
@@ -99,7 +100,6 @@ impl DockerCollector {
   }
 
   fn cpu_metrics<'a>(
-    &self,
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
     let cpu_delta =
@@ -125,7 +125,6 @@ impl DockerCollector {
   }
 
   fn memory_metrics<'a>(
-    &self,
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
     let memory_usage = match stats?.memory_stats.stats? {
@@ -166,7 +165,6 @@ impl DockerCollector {
   }
 
   fn block_metrics<'a>(
-    &self,
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
     let (block_io_tx, block_io_rx) = stats?
@@ -201,7 +199,6 @@ impl DockerCollector {
   }
 
   fn network_metrics<'a>(
-    &self,
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
     let (network_tx, network_rx) = stats?
