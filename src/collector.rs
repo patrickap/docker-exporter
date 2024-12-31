@@ -17,6 +17,7 @@ use crate::extension::DockerExt;
 // TODO: do not unwrap if possible. when use ? vs unwrap? check all
 // TODO: move metric methods outside collector as they do not need self or make them static
 // TODO: maybe move encoder processing outside method
+// TODO: check all metrics calculations with previous implementation
 
 #[derive(Debug)]
 pub struct DockerCollector {
@@ -72,28 +73,30 @@ impl DockerCollector {
   fn state_metrics<'a>(
     (state, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
-    let running = state?.running? as i64;
+    let running = state.and_then(|s| s.running).unwrap_or_default();
 
-    let healthy = state?
-      .health
-      .as_ref()
-      .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))? as i64;
+    let healthy = state
+      .and_then(|s| s.health.as_ref())
+      .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))
+      .unwrap_or_default();
 
     let labels = Rc::new(DockerMetricLabels {
-      container_name: stats?.name[1..].to_string(),
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
     });
 
     Some(Vec::from([
       DockerMetric::new(
         "state_running_boolean",
         "state running as boolean (1 = true, 0 = false)",
-        Box::new(ConstGauge::new(running)),
+        Box::new(ConstGauge::new(running as i64)),
         Rc::clone(&labels),
       ),
       DockerMetric::new(
         "state_healthy_boolean",
         "state healthy as boolean (1 = true, 0 = false)",
-        Box::new(ConstGauge::new(healthy)),
+        Box::new(ConstGauge::new(healthy as i64)),
         Rc::clone(&labels),
       ),
     ]))
@@ -102,18 +105,29 @@ impl DockerCollector {
   fn cpu_metrics<'a>(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
-    let cpu_delta =
-      stats?.cpu_stats.cpu_usage.total_usage - stats?.precpu_stats.cpu_usage.total_usage;
+    let cpu_delta = stats
+      .map(|s| s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage)
+      .unwrap_or_default();
 
-    let cpu_delta_system =
-      stats?.cpu_stats.system_cpu_usage? - stats?.precpu_stats.system_cpu_usage?;
+    let cpu_delta_system = stats
+      .and_then(|s| {
+        s.cpu_stats
+          .system_cpu_usage
+          .zip(s.precpu_stats.system_cpu_usage)
+      })
+      .map(|(cpu_usage, precpu_usage)| cpu_usage - precpu_usage)
+      .unwrap_or_default();
 
-    let cpu_count = stats?.cpu_stats.online_cpus?;
+    let cpu_count = stats
+      .and_then(|s| s.cpu_stats.online_cpus)
+      .unwrap_or_default();
 
     let cpu_utilization = (cpu_delta as f64 / cpu_delta_system as f64) * cpu_count as f64 * 100.0;
 
     let labels = Rc::new(DockerMetricLabels {
-      container_name: stats?.name[1..].to_string(),
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
     });
 
     Some(Vec::from([DockerMetric::new(
@@ -127,6 +141,7 @@ impl DockerCollector {
   fn memory_metrics<'a>(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
+    // TODO: write with and_then/map
     let memory_usage = match stats?.memory_stats.stats? {
       MemoryStatsStats::V1(memory_stats) => stats?.memory_stats.usage? - memory_stats.cache,
       // In cgroup v2, Docker doesn't provide a cache property
@@ -134,12 +149,14 @@ impl DockerCollector {
       MemoryStatsStats::V2(_) => stats?.memory_stats.usage?,
     };
 
-    let memory_limit = stats?.memory_stats.limit?;
+    let memory_limit = stats.and_then(|s| s.memory_stats.limit).unwrap_or_default();
 
     let memory_utilization = (memory_usage as f64 / memory_limit as f64) * 100.0;
 
     let labels = Rc::new(DockerMetricLabels {
-      container_name: stats?.name[1..].to_string(),
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
     });
 
     Some(Vec::from([
@@ -167,19 +184,22 @@ impl DockerCollector {
   fn block_metrics<'a>(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
-    let (block_io_tx, block_io_rx) = stats?
-      .blkio_stats
-      .io_service_bytes_recursive
-      .as_ref()?
-      .iter()
-      .fold(Some((0, 0)), |acc, io| match io.op.as_str() {
-        "write" => Some((acc?.0 + io.value, acc?.1)),
-        "read" => Some((acc?.0, acc?.1 + io.value)),
-        _ => acc,
-      })?;
+    let (block_io_tx, block_io_rx) = stats
+      .and_then(|s| s.blkio_stats.io_service_bytes_recursive.as_ref())
+      .and_then(|io| {
+        io.iter()
+          .fold(Some((0, 0)), |acc, io| match io.op.as_str() {
+            "write" => Some((acc?.0 + io.value, acc?.1)),
+            "read" => Some((acc?.0, acc?.1 + io.value)),
+            _ => acc,
+          })
+      })
+      .unwrap_or_default();
 
     let labels = Rc::new(DockerMetricLabels {
-      container_name: stats?.name[1..].to_string(),
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
     });
 
     Some(Vec::from([
@@ -201,14 +221,16 @@ impl DockerCollector {
   fn network_metrics<'a>(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
-    let (network_tx, network_rx) = stats?
-      .networks
-      .as_ref()?
-      .get("eth0")
-      .map(|n| (n.tx_bytes, n.rx_bytes))?;
+    let (network_tx, network_rx) = stats
+      .and_then(|s| s.networks.as_ref())
+      .and_then(|n| n.get("eth0"))
+      .map(|n| (n.tx_bytes, n.rx_bytes))
+      .unwrap_or_default();
 
     let labels = Rc::new(DockerMetricLabels {
-      container_name: stats?.name[1..].to_string(),
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
     });
 
     Some(Vec::from([
