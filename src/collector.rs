@@ -18,6 +18,7 @@ use crate::extension::DockerExt;
 // TODO: move metric methods outside collector as they do not need self or make them static
 // TODO: maybe move encoder processing outside method
 // TODO: check all metrics calculations with previous implementation
+// TODO: better rename function params in e.g. and_then/map calls
 
 #[derive(Debug)]
 pub struct DockerCollector {
@@ -141,13 +142,16 @@ impl DockerCollector {
   fn memory_metrics<'a>(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
-    // TODO: write with and_then/map
-    let memory_usage = match stats?.memory_stats.stats? {
-      MemoryStatsStats::V1(memory_stats) => stats?.memory_stats.usage? - memory_stats.cache,
-      // In cgroup v2, Docker doesn't provide a cache property
-      // Unfortunately, there's no simple way to differentiate cache from memory usage
-      MemoryStatsStats::V2(_) => stats?.memory_stats.usage?,
-    };
+    let memory_usage = stats
+      .map(|s| s.memory_stats)
+      .and_then(|m| match m.stats {
+        Some(MemoryStatsStats::V1(memory_stats)) => m.usage.map(|u| u - memory_stats.cache),
+        // In cgroup v2, Docker doesn't provide a cache property
+        // Unfortunately, there's no simple way to differentiate cache from memory usage
+        Some(MemoryStatsStats::V2(_)) => m.usage,
+        None => None,
+      })
+      .unwrap_or_default();
 
     let memory_limit = stats.and_then(|s| s.memory_stats.limit).unwrap_or_default();
 
