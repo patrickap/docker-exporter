@@ -263,19 +263,19 @@ impl Collector for DockerCollector {
         .block_on(async move {
           let metrics = self.recv_metrics().await.unwrap_or_default();
 
-          metrics.iter().for_each(|metric| {
-            encoder
-              .encode_descriptor(metric.name, metric.help, None, metric.metric.metric_type())
-              .and_then(|mut e| {
-                e.encode_family(metric.labels.as_ref())?;
-                Ok(e)
-              })
-              .and_then(|e| {
-                metric.metric.encode(e)?;
-                Ok(())
-              })
-              .unwrap_or_default();
-          });
+          for metric in metrics {
+            // TODO: labels are now working. can the implementation be improved? alternative to optional chaining which returns error if one of all metrics fails? maybe all valid metrics can be returned instead?
+            let mut metric_encoder = encoder.encode_descriptor(
+              metric.name,
+              metric.help,
+              None,
+              metric.metric.metric_type(),
+            )?;
+
+            let metric_encoder = metric_encoder.encode_family(metric.labels.as_ref())?;
+
+            metric.metric.encode(metric_encoder)?;
+          }
 
           Ok::<(), Box<dyn std::error::Error>>(())
         })
@@ -309,7 +309,7 @@ impl<'a> DockerMetric<'a> {
   }
 }
 
-#[derive(EncodeLabelSet)]
+#[derive(EncodeLabelSet, Debug)]
 pub struct DockerMetricLabels {
   pub container_name: String,
 }
