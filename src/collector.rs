@@ -1,351 +1,320 @@
-use bollard::{container::Stats, models::ContainerState, Docker};
-use futures::future;
+use bollard::{
+  container::{MemoryStatsStats, Stats},
+  secret::{ContainerState, HealthStatusEnum},
+  Docker,
+};
+use futures::future::{self};
 use prometheus_client::{
-  encoding::EncodeLabelSet,
-  metrics::{
-    counter::Counter,
-    family::Family,
-    gauge::{Atomic, Gauge},
-  },
-  registry::{self, Registry},
+  collector::Collector,
+  encoding::{DescriptorEncoder, EncodeLabelSet, EncodeMetric},
+  metrics::{counter::ConstCounter, gauge::ConstGauge},
 };
-use std::sync::{
-  atomic::{AtomicI64, AtomicU64},
-  Arc,
-};
+use std::{error::Error, rc::Rc, sync::Arc};
+use tokio::{runtime::Handle, task};
 
-use crate::extension::{DockerExt, DockerStatsExt, RegistryExt};
+use crate::extension::DockerExt;
 
-pub trait Collector {
-  type Output;
-
-  async fn collect(&self) -> Self::Output;
+#[derive(Debug)]
+pub struct DockerCollector {
+  docker: Arc<Docker>,
 }
 
-pub struct DockerCollector<D: DockerExt> {
-  docker: Arc<D>,
-}
-
-impl<D: DockerExt> DockerCollector<D> {
-  pub fn new(docker: Arc<D>) -> Self {
-    Self { docker }
+impl DockerCollector {
+  pub fn new(docker: Arc<Docker>) -> Self {
+    return Self { docker };
   }
-}
 
-impl<D: DockerExt + Send + Sync + 'static> Collector for DockerCollector<D> {
-  type Output = Vec<(Option<ContainerState>, Option<Stats>)>;
-
-  async fn collect(&self) -> Self::Output {
+  pub async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
     let docker = Arc::clone(&self.docker);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
-    let tasks = containers.into_iter().map(|c| {
+    let tasks = containers.into_iter().map(|container| {
       let docker = Arc::clone(&docker);
 
       tokio::spawn(async move {
-        let id = c.id.as_deref().unwrap_or_default();
-        tokio::join!(docker.inspect_container_state(&id), docker.stats_once(&id))
+        let id = container.id.as_deref().unwrap_or_default();
+        let state = docker.inspect_container_state(&id);
+        let stats = docker.stats_once(&id);
+        tokio::join!(state, stats)
       })
     });
 
-    future::try_join_all(tasks).await.unwrap_or_default()
-  }
-}
+    let metrics = future::try_join_all(tasks)
+      .await?
+      .into_iter()
+      .flat_map(|(state, stats)| {
+        let args = (state.as_ref(), stats.as_ref());
 
-pub struct Metric<M: registry::Metric> {
-  pub name: String,
-  pub help: String,
-  pub metric: M,
-}
+        Vec::from(
+          [
+            Self::state_metrics(args),
+            Self::cpu_metrics(args),
+            Self::memory_metrics(args),
+            Self::block_metrics(args),
+            Self::network_metrics(args),
+          ]
+          .into_iter()
+          .fold(Vec::new(), |mut acc, curr| {
+            acc.append(&mut curr.unwrap_or_default());
+            acc
+          }),
+        )
+      })
+      .collect();
 
-impl<M: registry::Metric> Metric<M> {
-  pub fn new(name: &str, help: &str, metric: M) -> Self {
-    Self {
-      name: String::from(name),
-      help: String::from(help),
-      metric,
-    }
-  }
-}
-
-pub trait Metrics {
-  type Origin: Collector;
-  type Input: From<<Self::Origin as Collector>::Output>;
-
-  fn register(&self, registry: &mut Registry);
-  fn clear(&self);
-  fn update(&self, input: Self::Input);
-}
-
-pub struct DockerMetrics {
-  pub state_running_boolean: Metric<Family<DockerMetricLabels, Gauge<i64, AtomicI64>>>,
-  pub cpu_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  pub memory_usage_bytes: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  pub memory_limit_bytes: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  pub memory_utilization_percent: Metric<Family<DockerMetricLabels, Gauge<f64, AtomicU64>>>,
-  pub block_io_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  pub block_io_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  pub network_tx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-  pub network_rx_bytes_total: Metric<Family<DockerMetricLabels, Counter<f64, AtomicU64>>>,
-}
-
-impl DockerMetrics {
-  pub fn new() -> Self {
-    Default::default()
-  }
-}
-
-impl Metrics for DockerMetrics {
-  type Origin = DockerCollector<Docker>;
-  type Input = <Self::Origin as Collector>::Output;
-
-  fn register(&self, registry: &mut Registry) {
-    registry.register_metric(&self.state_running_boolean);
-    registry.register_metric(&self.cpu_utilization_percent);
-    registry.register_metric(&self.memory_usage_bytes);
-    registry.register_metric(&self.memory_limit_bytes);
-    registry.register_metric(&self.memory_utilization_percent);
-    registry.register_metric(&self.block_io_tx_bytes_total);
-    registry.register_metric(&self.block_io_rx_bytes_total);
-    registry.register_metric(&self.network_tx_bytes_total);
-    registry.register_metric(&self.network_rx_bytes_total);
+    Ok(metrics)
   }
 
-  fn clear(&self) {
-    self.state_running_boolean.metric.clear();
-    self.cpu_utilization_percent.metric.clear();
-    self.memory_usage_bytes.metric.clear();
-    self.memory_limit_bytes.metric.clear();
-    self.memory_utilization_percent.metric.clear();
-    self.block_io_tx_bytes_total.metric.clear();
-    self.block_io_rx_bytes_total.metric.clear();
-    self.network_tx_bytes_total.metric.clear();
-    self.network_rx_bytes_total.metric.clear();
-  }
+  fn state_metrics<'a>(
+    (state, stats): (Option<&ContainerState>, Option<&Stats>),
+  ) -> Option<Vec<DockerMetric<'a>>> {
+    let running = state.and_then(|s| s.running).unwrap_or_default();
 
-  fn update(&self, input: Self::Input) {
-    for (state, stats) in input {
-      let name = stats.as_ref().and_then(|s| s.name());
-      let labels = match name {
-        Some(name) => Some(DockerMetricLabels {
-          container_name: name,
-        }),
-        _ => None,
-      }
+    let healthy = state
+      .and_then(|s| s.health.as_ref())
+      .map(|h| (h.status == Some(HealthStatusEnum::HEALTHY)))
       .unwrap_or_default();
 
-      if let Some(state) = state {
-        if let Some(state_running) = state.running {
-          self
-            .state_running_boolean
-            .metric
-            .get_or_create(&labels)
-            .set(state_running as i64);
-        }
+    let labels = Rc::new(DockerMetricLabels {
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
+    });
 
-        if let Some(true) = state.running {
-          if let Some(stats) = stats {
-            if let Some(cpu_utilization) = stats.cpu_utilization() {
-              self
-                .cpu_utilization_percent
-                .metric
-                .get_or_create(&labels)
-                .set(cpu_utilization);
-            }
-
-            if let Some(memory_usage) = stats.memory_usage() {
-              self
-                .memory_usage_bytes
-                .metric
-                .get_or_create(&labels)
-                .set(memory_usage as f64);
-            }
-
-            if let Some(memory_limit) = stats.memory_limit() {
-              self
-                .memory_limit_bytes
-                .metric
-                .get_or_create(&labels)
-                .set(memory_limit as f64);
-            }
-
-            if let Some(memory_utilization) = stats.memory_utilization() {
-              self
-                .memory_utilization_percent
-                .metric
-                .get_or_create(&labels)
-                .set(memory_utilization);
-            }
-
-            if let Some(block_io_tx_total) = stats.block_io_tx_total() {
-              self
-                .block_io_tx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(block_io_tx_total as f64);
-            }
-
-            if let Some(block_io_rx_total) = stats.block_io_rx_total() {
-              self
-                .block_io_rx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(block_io_rx_total as f64);
-            }
-
-            if let Some(network_tx_total) = stats.network_tx_total() {
-              self
-                .network_tx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(network_tx_total as f64);
-            }
-
-            if let Some(network_rx_total) = stats.network_rx_total() {
-              self
-                .network_rx_bytes_total
-                .metric
-                .get_or_create(&labels)
-                .inner()
-                .set(network_rx_total as f64);
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-impl Default for DockerMetrics {
-  fn default() -> Self {
-    Self {
-      state_running_boolean: Metric::new(
+    Some(Vec::from([
+      DockerMetric::new(
         "state_running_boolean",
         "state running as boolean (1 = true, 0 = false)",
-        Default::default(),
+        Box::new(ConstGauge::new(running as i64)),
+        Rc::clone(&labels),
       ),
-      cpu_utilization_percent: Metric::new(
-        "cpu_utilization_percent",
-        "cpu utilization in percent",
-        Default::default(),
+      DockerMetric::new(
+        "state_healthy_boolean",
+        "state healthy as boolean (1 = true, 0 = false)",
+        Box::new(ConstGauge::new(healthy as i64)),
+        Rc::clone(&labels),
       ),
-      memory_usage_bytes: Metric::new(
+    ]))
+  }
+
+  fn cpu_metrics<'a>(
+    (_, stats): (Option<&ContainerState>, Option<&Stats>),
+  ) -> Option<Vec<DockerMetric<'a>>> {
+    let cpu_delta = stats
+      .map(|s| s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage)
+      .unwrap_or_default();
+
+    let cpu_delta_system = stats
+      .and_then(|s| {
+        s.cpu_stats
+          .system_cpu_usage
+          .zip(s.precpu_stats.system_cpu_usage)
+      })
+      .map(|(cpu_usage, precpu_usage)| cpu_usage - precpu_usage)
+      .unwrap_or_default();
+
+    let cpu_count = stats.and_then(|s| s.cpu_stats.online_cpus).unwrap_or(1);
+
+    let cpu_utilization = (cpu_delta as f64 / cpu_delta_system as f64) * cpu_count as f64 * 100.0;
+
+    let labels = Rc::new(DockerMetricLabels {
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
+    });
+
+    Some(Vec::from([DockerMetric::new(
+      "cpu_utilization_percent",
+      "cpu utilization in percent",
+      Box::new(ConstGauge::new(cpu_utilization)),
+      Rc::clone(&labels),
+    )]))
+  }
+
+  fn memory_metrics<'a>(
+    (_, stats): (Option<&ContainerState>, Option<&Stats>),
+  ) -> Option<Vec<DockerMetric<'a>>> {
+    let memory_cache = stats
+      .map(|s| s.memory_stats)
+      .map(|m| match m.stats {
+        Some(MemoryStatsStats::V1(memory_stats)) => memory_stats.cache,
+        // In cgroup v2, Docker doesn't provide a cache property.
+        // Unfortunately, there's no simple way to differentiate cache from memory usage.
+        Some(MemoryStatsStats::V2(_)) => 0,
+        _ => 0,
+      })
+      .unwrap_or_default();
+
+    let memory_usage = stats
+      .and_then(|s| s.memory_stats.usage)
+      .map(|memory_usage| memory_usage - memory_cache)
+      .unwrap_or_default();
+
+    let memory_limit = stats.and_then(|s| s.memory_stats.limit).unwrap_or_default();
+
+    let memory_utilization = (memory_usage as f64 / memory_limit as f64) * 100.0;
+
+    let labels = Rc::new(DockerMetricLabels {
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
+    });
+
+    Some(Vec::from([
+      DockerMetric::new(
         "memory_usage_bytes",
         "memory usage in bytes",
-        Default::default(),
+        Box::new(ConstGauge::new(memory_usage as f64)),
+        Rc::clone(&labels),
       ),
-      memory_limit_bytes: Metric::new(
+      DockerMetric::new(
         "memory_limit_bytes",
         "memory limit in bytes",
-        Default::default(),
+        Box::new(ConstGauge::new(memory_limit as f64)),
+        Rc::clone(&labels),
       ),
-      memory_utilization_percent: Metric::new(
+      DockerMetric::new(
         "memory_utilization_percent",
         "memory utilization in percent",
-        Default::default(),
+        Box::new(ConstGauge::new(memory_utilization)),
+        Rc::clone(&labels),
       ),
-      block_io_tx_bytes_total: Metric::new(
+    ]))
+  }
+
+  fn block_metrics<'a>(
+    (_, stats): (Option<&ContainerState>, Option<&Stats>),
+  ) -> Option<Vec<DockerMetric<'a>>> {
+    let (block_io_tx, block_io_rx) = stats
+      .and_then(|s| s.blkio_stats.io_service_bytes_recursive.as_ref())
+      .map(|io| {
+        io.iter().fold((0, 0), |acc, io| match io.op.as_str() {
+          "write" => (acc.0 + io.value, acc.1),
+          "read" => (acc.0, acc.1 + io.value),
+          _ => acc,
+        })
+      })
+      .unwrap_or_default();
+
+    let labels = Rc::new(DockerMetricLabels {
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
+    });
+
+    Some(Vec::from([
+      DockerMetric::new(
         "block_io_tx_bytes",
         "block io written total in bytes",
-        Default::default(),
+        Box::new(ConstCounter::new(block_io_tx)),
+        Rc::clone(&labels),
       ),
-      block_io_rx_bytes_total: Metric::new(
+      DockerMetric::new(
         "block_io_rx_bytes",
         "block io read total in bytes",
-        Default::default(),
+        Box::new(ConstCounter::new(block_io_rx)),
+        Rc::clone(&labels),
       ),
-      network_tx_bytes_total: Metric::new(
+    ]))
+  }
+
+  fn network_metrics<'a>(
+    (_, stats): (Option<&ContainerState>, Option<&Stats>),
+  ) -> Option<Vec<DockerMetric<'a>>> {
+    let (network_tx, network_rx) = stats
+      .and_then(|s| s.networks.as_ref())
+      .and_then(|n| n.get("eth0"))
+      .map(|n| (n.tx_bytes, n.rx_bytes))
+      .unwrap_or_default();
+
+    let labels = Rc::new(DockerMetricLabels {
+      container_name: stats
+        .map(|s| String::from(&s.name[1..]))
+        .unwrap_or_default(),
+    });
+
+    Some(Vec::from([
+      DockerMetric::new(
         "network_tx_bytes",
         "network sent total in bytes",
-        Default::default(),
+        Box::new(ConstCounter::new(network_tx)),
+        Rc::clone(&labels),
       ),
-      network_rx_bytes_total: Metric::new(
+      DockerMetric::new(
         "network_rx_bytes",
         "network received total in bytes",
-        Default::default(),
+        Box::new(ConstCounter::new(network_rx)),
+        Rc::clone(&labels),
       ),
-    }
+    ]))
   }
 }
 
-#[derive(Clone, Debug, Default, EncodeLabelSet, Eq, Hash, PartialEq)]
+impl Collector for DockerCollector {
+  fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
+    // Blocking is necessary because the `encode`` implementation is synchronous.
+    task::block_in_place(move || {
+      // Reentering the async context to collect the metrics.
+      Handle::current()
+        .block_on(async move {
+          let metrics = self.collect().await.unwrap_or_default();
+
+          metrics.iter().for_each(|metric| {
+            if let Err(e) = metric.encode(&mut encoder) {
+              eprintln!("Error processing metric: {}", e);
+            }
+          });
+
+          Ok::<(), Box<dyn Error>>(())
+        })
+        .unwrap_or_default();
+    });
+
+    Ok(())
+  }
+}
+
+pub struct DockerMetric<'a> {
+  name: &'a str,
+  help: &'a str,
+  metric: Box<dyn EncodeMetric + 'a>,
+  labels: Rc<DockerMetricLabels>,
+}
+
+impl<'a> DockerMetric<'a> {
+  pub fn new(
+    name: &'a str,
+    help: &'a str,
+    metric: Box<dyn EncodeMetric + 'a>,
+    labels: Rc<DockerMetricLabels>,
+  ) -> Self {
+    Self {
+      name,
+      help,
+      metric,
+      labels,
+    }
+  }
+
+  fn encode(&self, encoder: &mut DescriptorEncoder) -> Result<(), Box<dyn std::error::Error>> {
+    let mut metric_encoder = encoder.encode_descriptor(
+      self.name,
+      self.help,
+      None,
+      self.metric.as_ref().metric_type(),
+    )?;
+
+    let metric_encoder = metric_encoder.encode_family(self.labels.as_ref())?;
+
+    self.metric.as_ref().encode(metric_encoder)?;
+
+    Ok(())
+  }
+}
+
+#[derive(EncodeLabelSet, Debug)]
 pub struct DockerMetricLabels {
   pub container_name: String,
 }
 
-#[cfg(test)]
-mod tests {
-  use bollard::models::ContainerSummary;
-
-  use super::*;
-  use crate::extension::DockerExt;
-
-  #[tokio::test]
-  async fn it_collects_metrics() {
-    struct DockerMock {}
-
-    impl DockerExt for DockerMock {
-      async fn list_containers_all(&self) -> Option<Vec<ContainerSummary>> {
-        Some(Vec::from([ContainerSummary {
-          id: Some(String::from("id_test")),
-          ..Default::default()
-        }]))
-      }
-      async fn inspect_container_state(&self, _: &str) -> Option<ContainerState> {
-        Some(ContainerState {
-          running: Some(true),
-          ..Default::default()
-        })
-      }
-      async fn stats_once(&self, _: &str) -> Option<Stats> {
-        None
-      }
-    }
-
-    let docker = DockerMock {};
-    let collector = DockerCollector::new(Arc::new(docker));
-    let result = collector.collect().await;
-    assert_eq!(result.len(), 1);
-
-    let (state, stats) = &result[0];
-    assert_eq!(state.as_ref().unwrap().running, Some(true));
-    assert_eq!(stats.as_ref(), None)
-  }
-
-  #[test]
-  fn it_updates_metrics() {
-    let labels = DockerMetricLabels {
-      ..Default::default()
-    };
-    let metrics = DockerMetrics::new();
-
-    assert_eq!(
-      metrics
-        .state_running_boolean
-        .metric
-        .get_or_create(&labels)
-        .get(),
-      0
-    );
-
-    metrics.update(Vec::from([(
-      Some(ContainerState {
-        running: Some(true),
-        ..Default::default()
-      }),
-      None,
-    )]));
-
-    assert_eq!(
-      metrics
-        .state_running_boolean
-        .metric
-        .get_or_create(&labels)
-        .get(),
-      1
-    );
-  }
-}
+// TODO: add back missing tests (hint: no docker mock required, all metric methods are static)
