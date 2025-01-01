@@ -113,9 +113,7 @@ impl DockerCollector {
       .map(|(cpu_usage, precpu_usage)| cpu_usage - precpu_usage)
       .unwrap_or_default();
 
-    let cpu_count = stats
-      .and_then(|s| s.cpu_stats.online_cpus)
-      .unwrap_or_default();
+    let cpu_count = stats.and_then(|s| s.cpu_stats.online_cpus).unwrap_or(1);
 
     let cpu_utilization = (cpu_delta as f64 / cpu_delta_system as f64) * cpu_count as f64 * 100.0;
 
@@ -136,15 +134,20 @@ impl DockerCollector {
   fn memory_metrics<'a>(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
   ) -> Option<Vec<DockerMetric<'a>>> {
-    let memory_usage = stats
+    let memory_cache = stats
       .map(|s| s.memory_stats)
-      .and_then(|m| match m.stats {
-        Some(MemoryStatsStats::V1(memory_stats)) => m.usage.map(|u| u - memory_stats.cache),
+      .map(|m| match m.stats {
+        Some(MemoryStatsStats::V1(memory_stats)) => memory_stats.cache,
         // In cgroup v2, Docker doesn't provide a cache property.
         // Unfortunately, there's no simple way to differentiate cache from memory usage.
-        Some(MemoryStatsStats::V2(_)) => m.usage,
-        None => None,
+        Some(MemoryStatsStats::V2(_)) => 0,
+        _ => 0,
       })
+      .unwrap_or_default();
+
+    let memory_usage = stats
+      .and_then(|s| s.memory_stats.usage)
+      .map(|memory_usage| memory_usage - memory_cache)
       .unwrap_or_default();
 
     let memory_limit = stats.and_then(|s| s.memory_stats.limit).unwrap_or_default();
