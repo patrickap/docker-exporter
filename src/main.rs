@@ -19,9 +19,9 @@ use crate::{
 async fn main() -> Result<(), Box<dyn Error>> {
   let docker = match Docker::try_connect() {
     Ok(docker) => Ok(docker),
-    Err(err) => {
-      eprintln!("failed to connect to docker daemon: {:?}", err);
-      Err(err)
+    Err(e) => {
+      eprintln!("Failed to connect to Docker daemon: {:?}", e);
+      Err(e)
     }
   }?;
 
@@ -37,17 +37,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .route("/metrics", routing::get(route::metrics))
     .layer(Extension(Arc::new(registry)));
 
-  println!("server listening on {}", listener.local_addr()?);
+  println!("Server listening on {}", listener.local_addr()?);
 
   axum::serve(listener, router)
     .with_graceful_shutdown(async {
       if let Ok(_) = signal::ctrl_c().await {
-        println!("\nreceived signal; shutting down");
+        println!("\nReceived signal; shutting down");
       }
     })
     .await?;
 
-  println!("server stopped");
+  println!("Server stopped");
 
   Ok(())
 }

@@ -14,9 +14,6 @@ use tokio::{runtime::Handle, task};
 
 use crate::extension::DockerExt;
 
-// TODO: do not unwrap if possible. when use ? vs unwrap? check all
-// TODO: check all metrics calculations with previous implementation
-
 #[derive(Debug)]
 pub struct DockerCollector {
   docker: Arc<Docker>,
@@ -27,7 +24,7 @@ impl DockerCollector {
     return Self { docker };
   }
 
-  pub async fn recv_metrics<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
+  pub async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
     let docker = Arc::clone(&self.docker);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
@@ -143,8 +140,8 @@ impl DockerCollector {
       .map(|s| s.memory_stats)
       .and_then(|m| match m.stats {
         Some(MemoryStatsStats::V1(memory_stats)) => m.usage.map(|u| u - memory_stats.cache),
-        // In cgroup v2, Docker doesn't provide a cache property
-        // Unfortunately, there's no simple way to differentiate cache from memory usage
+        // In cgroup v2, Docker doesn't provide a cache property.
+        // Unfortunately, there's no simple way to differentiate cache from memory usage.
         Some(MemoryStatsStats::V2(_)) => m.usage,
         None => None,
       })
@@ -187,13 +184,12 @@ impl DockerCollector {
   ) -> Option<Vec<DockerMetric<'a>>> {
     let (block_io_tx, block_io_rx) = stats
       .and_then(|s| s.blkio_stats.io_service_bytes_recursive.as_ref())
-      .and_then(|io| {
-        io.iter()
-          .fold(Some((0, 0)), |acc, io| match io.op.as_str() {
-            "write" => Some((acc?.0 + io.value, acc?.1)),
-            "read" => Some((acc?.0, acc?.1 + io.value)),
-            _ => acc,
-          })
+      .map(|io| {
+        io.iter().fold((0, 0), |acc, io| match io.op.as_str() {
+          "write" => (acc.0 + io.value, acc.1),
+          "read" => (acc.0, acc.1 + io.value),
+          _ => acc,
+        })
       })
       .unwrap_or_default();
 
@@ -253,30 +249,22 @@ impl DockerCollector {
 
 impl Collector for DockerCollector {
   fn encode(&self, mut encoder: DescriptorEncoder) -> Result<(), std::fmt::Error> {
-    // Blocking is required as encode is not available as async function.
+    // Blocking is necessary because the `encode`` implementation is synchronous.
     task::block_in_place(move || {
-      // Reentering the async context for gathering the metrics.
+      // Reentering the async context to collect the metrics.
       Handle::current()
         .block_on(async move {
-          let metrics = self.recv_metrics().await.unwrap_or_default();
+          let metrics = self.collect().await.unwrap_or_default();
 
-          for metric in metrics {
-            // TODO: labels are now working. can the implementation be improved? alternative to optional chaining which returns error if one of all metrics fails? maybe all valid metrics can be returned instead?
-            let mut metric_encoder = encoder.encode_descriptor(
-              metric.name,
-              metric.help,
-              None,
-              metric.metric.metric_type(),
-            )?;
+          metrics.iter().for_each(|metric| {
+            if let Err(e) = metric.encode(&mut encoder) {
+              eprintln!("Error processing metric: {}", e);
+            }
+          });
 
-            let metric_encoder = metric_encoder.encode_family(metric.labels.as_ref())?;
-
-            metric.metric.encode(metric_encoder)?;
-          }
-
-          Ok::<(), Box<dyn std::error::Error>>(())
+          Ok::<(), Box<dyn Error>>(())
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
     });
 
     Ok(())
@@ -291,7 +279,7 @@ pub struct DockerMetric<'a> {
 }
 
 impl<'a> DockerMetric<'a> {
-  fn new(
+  pub fn new(
     name: &'a str,
     help: &'a str,
     metric: Box<dyn EncodeMetric + 'a>,
@@ -303,6 +291,21 @@ impl<'a> DockerMetric<'a> {
       metric,
       labels,
     }
+  }
+
+  fn encode(&self, encoder: &mut DescriptorEncoder) -> Result<(), Box<dyn std::error::Error>> {
+    let mut metric_encoder = encoder.encode_descriptor(
+      self.name,
+      self.help,
+      None,
+      self.metric.as_ref().metric_type(),
+    )?;
+
+    let metric_encoder = metric_encoder.encode_family(self.labels.as_ref())?;
+
+    self.metric.as_ref().encode(metric_encoder)?;
+
+    Ok(())
   }
 }
 
