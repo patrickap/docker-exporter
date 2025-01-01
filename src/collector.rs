@@ -317,4 +317,4 @@ pub struct DockerMetricLabels {
   pub container_name: String,
 }
 
-// TODO: add back missing tests
+// TODO: add back missing tests (hint: no docker mock required, all metric methods are static)
