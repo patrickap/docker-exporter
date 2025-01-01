@@ -15,10 +15,7 @@ use tokio::{runtime::Handle, task};
 use crate::extension::DockerExt;
 
 // TODO: do not unwrap if possible. when use ? vs unwrap? check all
-// TODO: move metric methods outside collector as they do not need self or make them static
-// TODO: maybe move encoder processing outside method
 // TODO: check all metrics calculations with previous implementation
-// TODO: better rename function params in e.g. and_then/map calls
 // TODO: for computed values like cpu_utilization maybe use match to only calculate when all dependent options are of type some
 
 #[derive(Debug)]
