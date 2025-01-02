@@ -83,14 +83,14 @@ impl DockerCollector {
 
     Some(Vec::from([
       DockerMetric::new(
-        "state_running_boolean",
-        "state running as boolean (1 = true, 0 = false)",
+        String::from("state_running_boolean"),
+        String::from("state running as boolean (1 = true, 0 = false)"),
         Box::new(ConstGauge::new(running as i64)),
         Rc::clone(&labels),
       ),
       DockerMetric::new(
-        "state_healthy_boolean",
-        "state healthy as boolean (1 = true, 0 = false)",
+        String::from("state_healthy_boolean"),
+        String::from("state healthy as boolean (1 = true, 0 = false)"),
         Box::new(ConstGauge::new(healthy as i64)),
         Rc::clone(&labels),
       ),
@@ -124,8 +124,8 @@ impl DockerCollector {
     });
 
     Some(Vec::from([DockerMetric::new(
-      "cpu_utilization_percent",
-      "cpu utilization in percent",
+      String::from("cpu_utilization_percent"),
+      String::from("cpu utilization in percent"),
       Box::new(ConstGauge::new(cpu_utilization)),
       Rc::clone(&labels),
     )]))
@@ -162,20 +162,20 @@ impl DockerCollector {
 
     Some(Vec::from([
       DockerMetric::new(
-        "memory_usage_bytes",
-        "memory usage in bytes",
+        String::from("memory_usage_bytes"),
+        String::from("memory usage in bytes"),
         Box::new(ConstGauge::new(memory_usage as f64)),
         Rc::clone(&labels),
       ),
       DockerMetric::new(
-        "memory_limit_bytes",
-        "memory limit in bytes",
+        String::from("memory_limit_bytes"),
+        String::from("memory limit in bytes"),
         Box::new(ConstGauge::new(memory_limit as f64)),
         Rc::clone(&labels),
       ),
       DockerMetric::new(
-        "memory_utilization_percent",
-        "memory utilization in percent",
+        String::from("memory_utilization_percent"),
+        String::from("memory utilization in percent"),
         Box::new(ConstGauge::new(memory_utilization)),
         Rc::clone(&labels),
       ),
@@ -204,14 +204,14 @@ impl DockerCollector {
 
     Some(Vec::from([
       DockerMetric::new(
-        "block_io_tx_bytes",
-        "block io written total in bytes",
+        String::from("block_io_tx_bytes"),
+        String::from("block io written total in bytes"),
         Box::new(ConstCounter::new(block_io_tx)),
         Rc::clone(&labels),
       ),
       DockerMetric::new(
-        "block_io_rx_bytes",
-        "block io read total in bytes",
+        String::from("block_io_rx_bytes"),
+        String::from("block io read total in bytes"),
         Box::new(ConstCounter::new(block_io_rx)),
         Rc::clone(&labels),
       ),
@@ -235,14 +235,14 @@ impl DockerCollector {
 
     Some(Vec::from([
       DockerMetric::new(
-        "network_tx_bytes",
-        "network sent total in bytes",
+        String::from("network_tx_bytes"),
+        String::from("network sent total in bytes"),
         Box::new(ConstCounter::new(network_tx)),
         Rc::clone(&labels),
       ),
       DockerMetric::new(
-        "network_rx_bytes",
-        "network received total in bytes",
+        String::from("network_rx_bytes"),
+        String::from("network received total in bytes"),
         Box::new(ConstCounter::new(network_rx)),
         Rc::clone(&labels),
       ),
@@ -283,14 +283,14 @@ pub struct DockerMetric {
 
 impl DockerMetric {
   pub fn new(
-    name: &str,
-    help: &str,
+    name: String,
+    help: String,
     metric: Box<dyn EncodeMetric>,
     labels: Rc<DockerMetricLabels>,
   ) -> Self {
     Self {
-      name: String::from(name),
-      help: String::from(help),
+      name,
+      help,
       metric,
       labels,
     }
@@ -378,8 +378,8 @@ mod tests {
     let result = result.unwrap();
     assert_eq!(result.len(), expected.len());
 
-    for (i, (expected_name, expected_type)) in expected.iter().enumerate() {
-      assert_eq!(result[i].name, *expected_name);
+    for (i, (expected_name, expected_type)) in expected.into_iter().enumerate() {
+      assert_eq!(result[i].name, expected_name);
       assert_eq!(
         result[i].metric.metric_type().as_str(),
         expected_type.as_str()
