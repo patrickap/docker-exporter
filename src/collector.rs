@@ -24,7 +24,7 @@ impl DockerCollector {
     return Self { docker };
   }
 
-  pub async fn collect<'a>(&self) -> Result<Vec<DockerMetric<'a>>, Box<dyn Error>> {
+  pub async fn collect(&self) -> Result<Vec<DockerMetric>, Box<dyn Error>> {
     let docker = Arc::clone(&self.docker);
     let containers = docker.list_containers_all().await.unwrap_or_default();
 
@@ -65,9 +65,9 @@ impl DockerCollector {
     Ok(metrics)
   }
 
-  fn state_metrics<'a>(
+  fn state_metrics(
     (state, stats): (Option<&ContainerState>, Option<&Stats>),
-  ) -> Option<Vec<DockerMetric<'a>>> {
+  ) -> Option<Vec<DockerMetric>> {
     let running = state.and_then(|s| s.running).unwrap_or_default();
 
     let healthy = state
@@ -97,9 +97,9 @@ impl DockerCollector {
     ]))
   }
 
-  fn cpu_metrics<'a>(
+  fn cpu_metrics(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
-  ) -> Option<Vec<DockerMetric<'a>>> {
+  ) -> Option<Vec<DockerMetric>> {
     let cpu_delta = stats
       .map(|s| s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage)
       .unwrap_or_default();
@@ -131,9 +131,9 @@ impl DockerCollector {
     )]))
   }
 
-  fn memory_metrics<'a>(
+  fn memory_metrics(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
-  ) -> Option<Vec<DockerMetric<'a>>> {
+  ) -> Option<Vec<DockerMetric>> {
     let memory_cache = stats
       .map(|s| s.memory_stats)
       .map(|m| match m.stats {
@@ -182,9 +182,9 @@ impl DockerCollector {
     ]))
   }
 
-  fn block_metrics<'a>(
+  fn block_metrics(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
-  ) -> Option<Vec<DockerMetric<'a>>> {
+  ) -> Option<Vec<DockerMetric>> {
     let (block_io_tx, block_io_rx) = stats
       .and_then(|s| s.blkio_stats.io_service_bytes_recursive.as_ref())
       .map(|io| {
@@ -218,9 +218,9 @@ impl DockerCollector {
     ]))
   }
 
-  fn network_metrics<'a>(
+  fn network_metrics(
     (_, stats): (Option<&ContainerState>, Option<&Stats>),
-  ) -> Option<Vec<DockerMetric<'a>>> {
+  ) -> Option<Vec<DockerMetric>> {
     let (network_tx, network_rx) = stats
       .and_then(|s| s.networks.as_ref())
       .and_then(|n| n.get("eth0"))
@@ -274,39 +274,35 @@ impl Collector for DockerCollector {
   }
 }
 
-pub struct DockerMetric<'a> {
-  name: &'a str,
-  help: &'a str,
-  metric: Box<dyn EncodeMetric + 'a>,
+pub struct DockerMetric {
+  name: String,
+  help: String,
+  metric: Box<dyn EncodeMetric>,
   labels: Rc<DockerMetricLabels>,
 }
 
-impl<'a> DockerMetric<'a> {
+impl DockerMetric {
   pub fn new(
-    name: &'a str,
-    help: &'a str,
-    metric: Box<dyn EncodeMetric + 'a>,
+    name: &str,
+    help: &str,
+    metric: Box<dyn EncodeMetric>,
     labels: Rc<DockerMetricLabels>,
   ) -> Self {
     Self {
-      name,
-      help,
+      name: String::from(name),
+      help: String::from(help),
       metric,
       labels,
     }
   }
 
   fn encode(&self, encoder: &mut DescriptorEncoder) -> Result<(), Box<dyn std::error::Error>> {
-    let mut metric_encoder = encoder.encode_descriptor(
-      self.name,
-      self.help,
-      None,
-      self.metric.as_ref().metric_type(),
-    )?;
+    let mut metric_encoder =
+      encoder.encode_descriptor(&self.name, &self.help, None, self.metric.metric_type())?;
 
-    let metric_encoder = metric_encoder.encode_family(self.labels.as_ref())?;
+    let metric_encoder = metric_encoder.encode_family(&*self.labels)?;
 
-    self.metric.as_ref().encode(metric_encoder)?;
+    self.metric.encode(metric_encoder)?;
 
     Ok(())
   }
@@ -324,107 +320,70 @@ mod tests {
   use super::*;
 
   #[test]
-  fn it_creates_state_metrics() {
-    let result = DockerCollector::state_metrics((None, None));
-    assert!(result.is_some());
-
-    let metrics = result.unwrap();
-    assert_eq!(metrics.len(), 2);
-
-    assert_eq!(metrics[0].name, "state_running_boolean");
-    assert_eq!(
-      metrics[0].metric.metric_type().as_str(),
-      MetricType::Gauge.as_str()
-    );
-
-    assert_eq!(metrics[1].name, "state_healthy_boolean");
-    assert_eq!(
-      metrics[1].metric.metric_type().as_str(),
-      MetricType::Gauge.as_str()
+  fn it_returns_state_metrics() {
+    assert_metrics(
+      DockerCollector::state_metrics((None, None)),
+      Vec::from([
+        ("state_running_boolean", MetricType::Gauge),
+        ("state_healthy_boolean", MetricType::Gauge),
+      ]),
     );
   }
 
   #[test]
-  fn it_creates_cpu_metrics() {
-    let result = DockerCollector::cpu_metrics((None, None));
-    assert!(result.is_some());
-
-    let metrics = result.unwrap();
-    assert_eq!(metrics.len(), 1);
-
-    assert_eq!(metrics[0].name, "cpu_utilization_percent");
-    assert_eq!(
-      metrics[0].metric.metric_type().as_str(),
-      MetricType::Gauge.as_str()
+  fn it_returns_cpu_metrics() {
+    assert_metrics(
+      DockerCollector::cpu_metrics((None, None)),
+      Vec::from([("cpu_utilization_percent", MetricType::Gauge)]),
     );
   }
 
   #[test]
-  fn it_creates_memory_metrics() {
-    let result = DockerCollector::memory_metrics((None, None));
-    assert!(result.is_some());
-
-    let metrics = result.unwrap();
-    assert_eq!(metrics.len(), 3);
-
-    assert_eq!(metrics[0].name, "memory_usage_bytes");
-    assert_eq!(
-      metrics[0].metric.metric_type().as_str(),
-      MetricType::Gauge.as_str()
-    );
-
-    assert_eq!(metrics[1].name, "memory_limit_bytes");
-    assert_eq!(
-      metrics[1].metric.metric_type().as_str(),
-      MetricType::Gauge.as_str()
-    );
-
-    assert_eq!(metrics[2].name, "memory_utilization_percent");
-    assert_eq!(
-      metrics[2].metric.metric_type().as_str(),
-      MetricType::Gauge.as_str()
+  fn it_returns_memory_metrics() {
+    assert_metrics(
+      DockerCollector::memory_metrics((None, None)),
+      Vec::from([
+        ("memory_usage_bytes", MetricType::Gauge),
+        ("memory_limit_bytes", MetricType::Gauge),
+        ("memory_utilization_percent", MetricType::Gauge),
+      ]),
     );
   }
 
   #[test]
-  fn it_creates_block_metrics() {
-    let result = DockerCollector::block_metrics((None, None));
-    assert!(result.is_some());
-
-    let metrics = result.unwrap();
-    assert_eq!(metrics.len(), 2);
-
-    assert_eq!(metrics[0].name, "block_io_tx_bytes");
-    assert_eq!(
-      metrics[0].metric.metric_type().as_str(),
-      MetricType::Counter.as_str()
-    );
-
-    assert_eq!(metrics[1].name, "block_io_rx_bytes");
-    assert_eq!(
-      metrics[1].metric.metric_type().as_str(),
-      MetricType::Counter.as_str()
+  fn it_returns_block_metrics() {
+    assert_metrics(
+      DockerCollector::block_metrics((None, None)),
+      Vec::from([
+        ("block_io_tx_bytes", MetricType::Counter),
+        ("block_io_rx_bytes", MetricType::Counter),
+      ]),
     );
   }
 
   #[test]
-  fn it_creates_network_metrics() {
-    let result = DockerCollector::network_metrics((None, None));
+  fn it_returns_network_metrics() {
+    assert_metrics(
+      DockerCollector::network_metrics((None, None)),
+      Vec::from([
+        ("network_tx_bytes", MetricType::Counter),
+        ("network_rx_bytes", MetricType::Counter),
+      ]),
+    );
+  }
+
+  fn assert_metrics(result: Option<Vec<DockerMetric>>, expected: Vec<(&str, MetricType)>) {
     assert!(result.is_some());
 
-    let metrics = result.unwrap();
-    assert_eq!(metrics.len(), 2);
+    let result = result.unwrap();
+    assert_eq!(result.len(), expected.len());
 
-    assert_eq!(metrics[0].name, "network_tx_bytes");
-    assert_eq!(
-      metrics[0].metric.metric_type().as_str(),
-      MetricType::Counter.as_str()
-    );
-
-    assert_eq!(metrics[1].name, "network_rx_bytes");
-    assert_eq!(
-      metrics[1].metric.metric_type().as_str(),
-      MetricType::Counter.as_str()
-    );
+    for (i, (expected_name, expected_type)) in expected.iter().enumerate() {
+      assert_eq!(result[i].name, *expected_name);
+      assert_eq!(
+        result[i].metric.metric_type().as_str(),
+        expected_type.as_str()
+      );
+    }
   }
 }

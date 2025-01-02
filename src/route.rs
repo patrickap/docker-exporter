@@ -28,13 +28,8 @@ mod tests {
 
   use super::*;
 
-  async fn read_body_as_str(body: Body) -> Result<String, Box<dyn Error>> {
-    let bytes = body::to_bytes(body, usize::MAX).await?;
-    Ok(String::from_utf8(bytes.to_vec())?)
-  }
-
   #[tokio::test]
-  async fn it_returns_status() {
+  async fn it_returns_status_response() {
     let result = status().await;
     assert!(result.is_ok());
 
@@ -46,7 +41,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn it_returns_metrics() {
+  async fn it_returns_metrics_response() {
     #[derive(Debug)]
     struct MockCollector {}
 
@@ -102,5 +97,10 @@ mod tests {
       + "# EOF\n";
 
     assert_eq!(body, expected);
+  }
+
+  async fn read_body_as_str(body: Body) -> Result<String, Box<dyn Error>> {
+    let bytes = body::to_bytes(body, usize::MAX).await?;
+    Ok(String::from_utf8(bytes.to_vec())?)
   }
 }
