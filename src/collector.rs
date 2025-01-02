@@ -317,4 +317,114 @@ pub struct DockerMetricLabels {
   pub container_name: String,
 }
 
-// TODO: add back missing tests (hint: no docker mock required, all metric methods are static)
+#[cfg(test)]
+mod tests {
+  use prometheus_client::metrics::MetricType;
+
+  use super::*;
+
+  #[test]
+  fn it_creates_state_metrics() {
+    let result = DockerCollector::state_metrics((None, None));
+    assert!(result.is_some());
+
+    let metrics = result.unwrap();
+    assert_eq!(metrics.len(), 2);
+
+    assert_eq!(metrics[0].name, "state_running_boolean");
+    assert_eq!(
+      metrics[0].metric.metric_type().as_str(),
+      MetricType::Gauge.as_str()
+    );
+
+    assert_eq!(metrics[1].name, "state_healthy_boolean");
+    assert_eq!(
+      metrics[1].metric.metric_type().as_str(),
+      MetricType::Gauge.as_str()
+    );
+  }
+
+  #[test]
+  fn it_creates_cpu_metrics() {
+    let result = DockerCollector::cpu_metrics((None, None));
+    assert!(result.is_some());
+
+    let metrics = result.unwrap();
+    assert_eq!(metrics.len(), 1);
+
+    assert_eq!(metrics[0].name, "cpu_utilization_percent");
+    assert_eq!(
+      metrics[0].metric.metric_type().as_str(),
+      MetricType::Gauge.as_str()
+    );
+  }
+
+  #[test]
+  fn it_creates_memory_metrics() {
+    let result = DockerCollector::memory_metrics((None, None));
+    assert!(result.is_some());
+
+    let metrics = result.unwrap();
+    assert_eq!(metrics.len(), 3);
+
+    assert_eq!(metrics[0].name, "memory_usage_bytes");
+    assert_eq!(
+      metrics[0].metric.metric_type().as_str(),
+      MetricType::Gauge.as_str()
+    );
+
+    assert_eq!(metrics[1].name, "memory_limit_bytes");
+    assert_eq!(
+      metrics[1].metric.metric_type().as_str(),
+      MetricType::Gauge.as_str()
+    );
+
+    assert_eq!(metrics[2].name, "memory_utilization_percent");
+    assert_eq!(
+      metrics[2].metric.metric_type().as_str(),
+      MetricType::Gauge.as_str()
+    );
+  }
+
+  #[test]
+  fn it_creates_block_metrics() {
+    let result = DockerCollector::block_metrics((None, None));
+    assert!(result.is_some());
+
+    let metrics = result.unwrap();
+    assert_eq!(metrics.len(), 2);
+
+    assert_eq!(metrics[0].name, "block_io_tx_bytes");
+    assert_eq!(
+      metrics[0].metric.metric_type().as_str(),
+      MetricType::Counter.as_str()
+    );
+
+    assert_eq!(metrics[1].name, "block_io_rx_bytes");
+    assert_eq!(
+      metrics[1].metric.metric_type().as_str(),
+      MetricType::Counter.as_str()
+    );
+  }
+
+  #[test]
+  fn it_creates_network_metrics() {
+    let result = DockerCollector::network_metrics((None, None));
+    assert!(result.is_some());
+
+    let metrics = result.unwrap();
+    assert_eq!(metrics.len(), 2);
+
+    assert_eq!(metrics[0].name, "network_tx_bytes");
+    assert_eq!(
+      metrics[0].metric.metric_type().as_str(),
+      MetricType::Counter.as_str()
+    );
+
+    assert_eq!(metrics[1].name, "network_rx_bytes");
+    assert_eq!(
+      metrics[1].metric.metric_type().as_str(),
+      MetricType::Counter.as_str()
+    );
+  }
+}
