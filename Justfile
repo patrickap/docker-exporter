@@ -18,12 +18,12 @@ restore_version:
   @cp {{PROJECT_VERSION}}.bak {{PROJECT_VERSION}}
 
 [private]
-docker-publish:
+docker_publish:
   @docker build --no-cache -t {{PROJECT_NAME}}:v$(just get_version) .				
   @docker push {{PROJECT_NAME}}:v$(just get_version)
 
 [private]
-git-publish:
+git_publish:
   @git add . -- ':!{{PROJECT_VERSION}}.bak'
   @git commit -m "chore(release): v$(just get_version)"
   @git push
@@ -38,21 +38,21 @@ clean_up:
 release_patch:
   @just backup_version
   @just set_version $(just get_version | awk -F. -v OFS=. '{$3++; print}')
-  @just docker-publish && just git-publish || just restore_version
+  @just docker_publish && just git_publish || just restore_version
   @just clean_up
 
 [private]
 release_minor:
   @just backup_version
   @just set_version $(just get_version | awk -F. -v OFS=. '{$2++; $3=0; print}')
-  @just docker-publish && just git-publish || just restore_version
+  @just docker_publish && just git_publish || just restore_version
   @just clean_up
 
 [private]
 release_major:
   @just backup_version
   @just set_version $(just get_version | awk -F. -v OFS=. '{$1++; $2=0; $3=0; print}')
-  @just docker-publish && just git-publish || just restore_version
+  @just docker_publish && just git_publish || just restore_version
   @just clean_up
 
 release type:
