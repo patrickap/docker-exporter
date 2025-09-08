@@ -19,7 +19,7 @@ restore_version:
 
 [private]
 docker_publish:
-  @docker build --no-cache -t {{PROJECT_NAME}}:v$(just get_version) .				
+  @docker buildx build --platform linux/amd64,linux/arm64 --no-cache -t {{PROJECT_NAME}}:v$(just get_version) .	
   @docker push {{PROJECT_NAME}}:v$(just get_version)
 
 [private]
