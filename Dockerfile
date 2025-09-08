@@ -1,10 +1,19 @@
-FROM rust:1.80.1-slim as builder
+FROM --platform=linux/amd64 rust:1.80.1-slim AS builder-amd64
 
 WORKDIR /build
+
 COPY . .
 
 RUN rustup target add x86_64-unknown-linux-musl \
     && cargo build --release --target x86_64-unknown-linux-musl
+
+FROM --platform=linux/arm64 rust:1.80.1-slim AS builder-arm64
+WORKDIR /build
+
+COPY . .
+
+RUN rustup target add aarch64-unknown-linux-musl \
+    && cargo build --release --target aarch64-unknown-linux-musl
 
 FROM alpine:3.20
 
@@ -14,8 +23,11 @@ ARG UID="1234" \
 ENV UID=$UID \
     GID=$GID
 
-COPY --from=builder /build/entrypoint.sh /usr/bin/entrypoint.sh
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/docker-exporter /usr/bin/docker-exporter
+COPY --from=builder-amd64 /build/entrypoint.sh /usr/bin/entrypoint.sh
+COPY --from=builder-arm64 /build/entrypoint.sh /usr/bin/entrypoint.sh
+
+COPY --from=builder-amd64 /build/target/x86_64-unknown-linux-musl/release/docker-exporter /usr/bin/docker-exporter
+COPY --from=builder-arm64 /build/target/aarch64-unknown-linux-musl/release/docker-exporter /usr/bin/docker-exporter
 
 RUN apk update \
     && apk add \
