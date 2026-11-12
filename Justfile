@@ -2,58 +2,58 @@ PROJECT_NAME := "patrickap/docker-exporter"
 PROJECT_VERSION := "VERSION"
 
 [private]
-get_version:
+get-version:
   @cat {{PROJECT_VERSION}}
 
 [private]
-set_version version:
+set-version version:
   @echo {{version}} > {{PROJECT_VERSION}}
 
 [private]
-backup_version:
+backup-version:
   @cp {{PROJECT_VERSION}} {{PROJECT_VERSION}}.bak
 
 [private]
-restore_version:
+restore-version:
   @cp {{PROJECT_VERSION}}.bak {{PROJECT_VERSION}}
 
 [private]
-docker_publish:
-  @docker buildx build --platform linux/amd64,linux/arm64 --no-cache -t {{PROJECT_NAME}}:v$(just get_version) .	
-  @docker push {{PROJECT_NAME}}:v$(just get_version)
+docker-publish:
+  @docker buildx build --platform linux/amd64,linux/arm64 --no-cache -t {{PROJECT_NAME}}:v$(just get-version) .	
+  @docker push {{PROJECT_NAME}}:v$(just get-version)
 
 [private]
-git_publish:
+git-publish:
   @git add . -- ':!{{PROJECT_VERSION}}.bak'
-  @git commit -m "chore(release): v$(just get_version)"
+  @git commit -m "chore(release): v$(just get-version)"
   @git push
-  @git tag -a "v$(just get_version)" -m "Release v$(just get_version)"
+  @git tag -a "v$(just get-version)" -m "Release v$(just get-version)"
   @git push --tags origin
 
 [private]
-clean_up:
+clean-up:
   @rm {{PROJECT_VERSION}}.bak
 
 [private]
-release_patch:
-  @just backup_version
-  @just set_version $(just get_version | awk -F. -v OFS=. '{$3++; print}')
-  @just docker_publish && just git_publish || just restore_version
-  @just clean_up
+release-patch:
+  @just backup-version
+  @just set-version $(just get-version | awk -F. -v OFS=. '{$3++; print}')
+  @just docker-publish && just git-publish || just restore-version
+  @just clean-up
 
 [private]
-release_minor:
-  @just backup_version
-  @just set_version $(just get_version | awk -F. -v OFS=. '{$2++; $3=0; print}')
-  @just docker_publish && just git_publish || just restore_version
-  @just clean_up
+release-minor:
+  @just backup-version
+  @just set-version $(just get-version | awk -F. -v OFS=. '{$2++; $3=0; print}')
+  @just docker-publish && just git-publish || just restore-version
+  @just clean-up
 
 [private]
-release_major:
-  @just backup_version
-  @just set_version $(just get_version | awk -F. -v OFS=. '{$1++; $2=0; $3=0; print}')
-  @just docker_publish && just git_publish || just restore_version
-  @just clean_up
+release-major:
+  @just backup-version
+  @just set-version $(just get-version | awk -F. -v OFS=. '{$1++; $2=0; $3=0; print}')
+  @just docker-publish && just git-publish || just restore-version
+  @just clean-up
 
 release type:
-  @just release_{{type}}
+  @just release-{{type}}
